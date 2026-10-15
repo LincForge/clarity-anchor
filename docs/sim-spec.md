@@ -56,21 +56,31 @@ as truth:
   ΔE_pod   = E(t_end) − E(t_start),  E = |v|²/2 − μ/r − (J2 potential term)
   W_srp    = ∫ a_srp,model · v dt                      (estimator's SRP, 10 % wrong)
   W_drag   = ΔE_pod − W_srp                            (non-conservative residual)
-  I_pod    = −2 W_drag / B_model = ∫ ρ_true |v_rel|² (v_rel·v̂) dt  (within model errors)
-  I_gauge  = ∫ ρ_meas |v_rel|² (v_rel·v̂) dt            (same weighting, from the 1 Hz gauge)
-  z_arc    = I_gauge / I_pod ≈ K·ḡ_arc·(1 + ε_B)^(−1)
+  I_pod    = −2 W_drag / B_model = (1+ε_B)^(−1) ∫ ρ_true |v_rel| (v_rel·v) dt
+  I_gauge  = ∫ ρ_meas |v_rel| (v_rel·v) dt              (same weighting, from the 1 Hz gauge)
+  z_inv    = I_pod / I_gauge ≈ 1 / K_eff,   K_eff = K·ḡ_arc·(1 + ε_B)
 
-Both integrals carry the same v_rel³ weighting, so the ratio is exact apart from noise and the
-B/SRP model errors. Verify in a test that with ε_B = 0, no POD noise and K ≡ 1, z_arc = 1 to 1e-6.
+*(amended 2026-10-15, reviewer-approved)* Three corrections to the original draft:
+(i) the weighting kernel is the exact drag power per unit ½Bρ, |v_rel|(v_rel·v); the original
+|v_rel|²(v_rel·v̂) differs by |v_rel|/|v| (≈0.3 %) and cannot give a ratio of 1 to 1e-6;
+(ii) I_pod = I_true/(1+ε_B), so K_eff = K·ḡ·(1+ε_B), not K·ḡ·(1+ε_B)^(−1), and ρ_cal inherits a
+bias −ε_B/(1+ε_B); (iii) the measurement is the inverse ratio z_inv = I_pod/I_gauge, which puts
+the POD noise in the numerator. The original z = I_gauge/I_pod carried POD noise in the denominator
+and was biased high by ≈σ_z² (+4.3 % at 600 km with 1-orbit arcs).
 
-**POD noise propagation.** Compute the per-arc std of z_arc empirically from 200 Monte Carlo
+Both integrals carry the same weighting, so the ratio is exact apart from noise and the
+B/SRP model errors. Verify in a test that with ε_B = 0, no POD noise and K ≡ 1, z_inv = 1 to 1e-6.
+
+**POD noise propagation.** Compute the per-arc std of z_inv empirically from 200 Monte Carlo
 noise draws on one fixed arc at each altitude and POD grade; use it as the filter's R.
 
 ## 4. Estimator
 
-Scalar Kalman filter on x = K_eff (= K·ḡ·(1+ε_B)^(−1)), random-walk process noise matched to the
-3 %/week drift, measurement z_arc with variance R from §3. Output ρ_cal(t) = ρ_meas(t)/K̂(t)
-at 30 s. Stretch: add a bias state b (ρ_meas = K ρ + b) and show whether it is observable.
+Scalar Kalman filter on y = 1/K_eff (K_eff = K·ḡ·(1+ε_B)), prior y0 = 1, P0 = 0.3², random-walk
+process noise matched to the 3 %/week drift, measurement z_inv with variance R from §3. Output
+ρ_cal(t) = ρ_meas(t)·ŷ(t) at 30 s. *(amended 2026-10-15, reviewer-approved: state and measurement
+inverted to remove the ratio-estimator bias; see §3.)* Stretch: add a bias state b
+(ρ_meas = K ρ + b) and show whether it is observable.
 
 No UKF, no attitude, no torques. If the scalar filter cannot meet the benchmark, nothing fancier
 will rescue the proposal in four weeks.
@@ -95,6 +105,8 @@ convergence), precision (std of relative error), convergence time, and PASS/FAIL
 - At 600 km, per-orbit decay is ~0.3 m, so convergence needs multi-orbit arcs; expect 5–10 days
   with T_arc = 10 orbits.
 - Accuracy tracks ε_B 1:1. With ε_B = 0.10, accuracy ≈ 10 %: PASS against 20 %.
+  *(Measured, round 1: accuracy follows ε_B/(1+ε_B), not 1:1 — 4.75 / 9.08 / 16.66 % at
+  ε_B = 0.05 / 0.10 / 0.20; see the §3 amendment.)*
 - The composition term g(t) shows up as a slow K drift of a few percent per day around the storm
   and is tracked, not rejected.
 
