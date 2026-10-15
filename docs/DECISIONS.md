@@ -70,3 +70,11 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
 - **R**: empirical std of z over 200 draws (fresh POD noise + fresh gauge noise) on the FIRST arc of each
   (altitude, POD grade, T_arc) cell, used as a constant R for the whole run. Check at 400 km / good /
   1 orbit: MC std 0.997 % vs endpoint-energy estimate 0.992 %.
+
+## Filter
+- State x = K_eff, prior x0 = 1.0 (ground calibration nominal), P0 = 0.3²; random-walk process noise
+  Q = (0.03)²/week · x̂² · Δt (relative, matching the gauge drift). Update at each arc end with z_arc.
+- ρ_cal(t) = ρ_meas,30s(t)/K̂(t) with the **causal** estimate (latest update at or before t; the prior
+  before the first arc). No smoothing — this is the real-time product.
+- Test (c): unit test K̂ = 1.2 exactly with R = 0; end-to-end (truth → gauge K = 1.2 → anchor → KF)
+  K̂ = 1.1999981 after one arc (error 1.6e-6, the SRP-shadow term of test (b')); gate 1e-5.
