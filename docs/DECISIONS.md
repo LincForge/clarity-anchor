@@ -105,10 +105,10 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
 - **Ratio-estimator bias.** z = I_gauge/I_pod has POD noise in the denominator, so E[z] ≈ K_eff(1 + σ_z²).
   At 600 km / good / 1-orbit arcs (σ_z ≈ 21 %) the mean of z/K_eff,true − 1 over 208 arcs is +4.3 % ±
   1.8 %, matching σ² = 4.4 %, and K̂ sits ~+5 % high for days. At σ_z ≳ 50 % (600 km COTS 1-orbit,
-  σ_z ≈ 98×) z is meaningless because I_pod crosses zero. Filtering on 1/K (measurement I_pod/I_gauge,
+  MC std(z) ≈ 98, i.e. 9800 %) z is meaningless because I_pod crosses zero. Filtering on 1/K (measurement I_pod/I_gauge,
   noise in the numerator) would remove the bias; not done here because spec §4 fixes x = K_eff, z = ratio.
 - **600 km converges much faster than pre-registered** (0.67 d with 10-orbit arcs vs 5–10 d expected):
-  the simulated per-orbit drag work at 600 km is ~3.7 J/kg (≈0.9 m/orbit decay at F10.7 = 150 with
+  the simulated per-orbit drag work at 600 km is 4.7 J/kg median (≈1.2 m/orbit decay via da = 2a²ΔE/μ, at F10.7 = 150 with
   the m(t) field), not the ~0.3 m the spec assumed, and endpoint POD noise is only ~0.55 J/kg (good).
 - Every scenario sees the identical truth atmosphere per altitude and one storm; the gauge measures the
   storm directly, so the storm has no visible effect on ρ_cal (K is a gain).
