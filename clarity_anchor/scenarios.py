@@ -96,8 +96,12 @@ def _truth_kernel(truth):
 
 def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draws=MC_DRAWS,
              composition=True, gauge_seed=GAUGE_SEED, keep_series=False, k_path=None, noise_seed=None,
-             pod_seed=None):
-    """One scenario cell: truth -> gauge -> POD -> anchor -> KF -> metrics."""
+             pod_seed=None, estimator="inv"):
+    """One scenario cell: truth -> gauge -> POD -> anchor -> KF -> metrics.
+
+    estimator="inv" (default, round 2): KF state y = 1/K_eff, measurement z_inv = I_pod/I_gauge,
+    rho_cal = rho_meas * y_hat. estimator="ratio" (round 1): state K_eff, measurement z = I_gauge/I_pod.
+    """
     from scipy.integrate import simpson
 
     from . import anchor, gauge, metrics, pod
@@ -122,10 +126,12 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     cr_model = orbit.C_R * (1 + SRP_MODEL_ERR)
     arc_len = n_orb * truth.T_orb
     a = anchor.compute(t1, meas1, tp, rp, vp, arc_len, B_model, cr_model)
+    inv = estimator == "inv"
+    zkey = "z_inv" if inv else "z"
     r_std, r_mean = anchor.monte_carlo_R(truth, K1 * g1, arc_len, grade, B_model, cr_model,
-                                         n=mc_draws, seed=MC_SEED)
+                                         n=mc_draws, seed=MC_SEED, which=zkey)
     R = r_std**2
-    res_kf = kf.run(a["t_end"], a["z"], R)
+    res_kf = kf.run(a["t_end"], a[zkey], R)
 
     # truth K_eff per arc: kernel-weighted K*g over the arc, times (1+eps_B)
     w1 = _truth_kernel(truth)
@@ -138,12 +144,13 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     # 30 s products
     tb, meas_b = gauge.bin_mean(t1, meas1, 30.0)
     _, rho_b = gauge.bin_mean(t1, rho1, 30.0)
-    khat_b = res_kf.at(tb)
-    rho_cal = meas_b / khat_b
+    xhat_b = res_kf.at(tb)
+    rho_cal = meas_b * xhat_b if inv else meas_b / xhat_b
     e_rho = rho_cal / rho_b - 1.0
     in_arcs = tb < a["t_end"][-1]
     arc_of_bin = np.clip(np.searchsorted(a["t_start"], tb, side="right") - 1, 0, len(a["z"]) - 1)
-    e_k = khat_b / keff_true[arc_of_bin] - 1.0
+    # calibration-factor error: y_hat*K_eff,true - 1 (inv) or K_hat/K_eff,true - 1 (ratio)
+    e_k = xhat_b * keff_true[arc_of_bin] - 1.0 if inv else xhat_b / keff_true[arc_of_bin] - 1.0
     t_conv = metrics.convergence_time(tb[in_arcs], e_k[in_arcs], metrics.CONV_TOL)
     converged = not np.isnan(t_conv)
     t_from = t_conv if converged else (days - 7.0) * 86400.0
@@ -157,7 +164,9 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
         "window_from_days": t_from / 86400.0,
         "accuracy": acc, "precision": prec, "mean_err": mean_err, "n_bins": nwin,
         "resolution_s": float(np.median(np.diff(tb))),
-        "z_rel_noise_vs_truth": float(np.std(a["z"] / keff_true - 1)),
+        "estimator": estimator,
+        "z_rel_noise_vs_truth": float(np.std(a["z_inv"] * keff_true - 1) if inv else np.std(a["z"] / keff_true - 1)),
+        "z_mean_bias": float(np.mean(a["z_inv"] * keff_true - 1) if inv else np.mean(a["z"] / keff_true - 1)),
         "gbar_min": float(gbar.min()), "gbar_max": float(gbar.max()),
         "gbar_max_rate_per_day": float(np.max(np.abs(np.diff(gbar))) / (L / 86400.0)) if len(gbar) > 1 else float("nan"),
         "khat_final_err": float(e_k[in_arcs][-1]),
@@ -166,6 +175,7 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     }
     if keep_series:
         out["series"] = {"tb": tb, "e_rho": e_rho, "e_k": e_k, "in_arcs": in_arcs, "rho_b": rho_b,
-                         "rho_cal": rho_cal, "meas_b": meas_b, "t_arc": a["t_end"], "z": a["z"], "keff_true": keff_true,
-                         "gbar": gbar, "khat": res_kf.x, "ksig": np.sqrt(res_kf.P)}
+                         "rho_cal": rho_cal, "meas_b": meas_b, "t_arc": a["t_end"], "z": a["z"], "z_inv": a["z_inv"],
+                         "keff_true": keff_true, "gbar": gbar,
+                         "khat": 1.0 / res_kf.x if inv else res_kf.x, "ksig": np.sqrt(res_kf.P)}
     return out

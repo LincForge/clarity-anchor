@@ -17,9 +17,9 @@ def test_c_noiseless_one_arc_end_to_end():
     meas = gauge.measure(tr.rho1, 1.2, 1.0, rng, noise=False)
     tp, rp, vp = pod.observe(tr.t, tr.states, "perfect", rng)
     a = anchor.compute(tr.t1, meas, tp, rp, vp, tr.T_orb, tr.B_true, orbit.C_R)
-    res = kf.run(a["t_end"][:1], a["z"][:1], R=1e-14)
-    print(f"\n(c) K_hat after one arc = {res.x[0]:.9f}")
-    assert res.x[0] == pytest.approx(1.2, abs=1e-5)
+    res = kf.run(a["t_end"][:1], a["z_inv"][:1], R=1e-14)  # state y = 1/K_eff
+    print(f"\n(c) K_hat = 1/y_hat after one arc = {1 / res.x[0]:.9f}")
+    assert 1 / res.x[0] == pytest.approx(1.2, abs=1e-5)
 
 
 def test_filter_averages_noise_and_holds_between_updates():

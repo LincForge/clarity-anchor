@@ -4,7 +4,8 @@ Per arc:  dE_pod = E(t_end) - E(t_start)   (point mass + J2 energy, same model a
           W_srp  = ∫ a_srp,model · v dt      (estimator's SRP model)
           I_pod  = -2 (dE_pod - W_srp) / B_model
           I_gauge= ∫ rho_meas · w dt,  w = |v_rel| (v_rel · v)
-          z      = I_gauge / I_pod
+          z_inv  = I_pod / I_gauge  (measures y = 1/K_eff; round 2, reviewer-approved)
+          z      = I_gauge / I_pod  (round-1 ratio, kept behind estimator="ratio")
 
 The kernel w = |v_rel|(v_rel·v) is the exact drag power per unit (½Bρ); see DECISIONS.md for why this
 replaces the spec's |v_rel|^2 (v_rel·v̂) notation. Both integrals use the identical kernel.
@@ -69,12 +70,14 @@ def compute(t1, rho_meas1, tp, rp, vp, arc_len_s, B_model, cr_model, j2=orbit.J2
         "W_srp": W_srp,
         "I_pod": I_pod,
         "I_gauge": I_gauge,
-        "z": I_gauge / I_pod,
+        "z": I_gauge / I_pod,  # round-1 ratio (POD noise in the denominator -> biased by ~sigma^2)
+        "z_inv": I_pod / I_gauge,  # round-2 measurement of y = 1/K_eff (POD noise in the numerator)
     }
 
 
-def monte_carlo_R(truth, Kg1, arc_len_s, grade, B_model, cr_model, n=200, seed=0, gauge_noise=True):
-    """Empirical std (and mean) of z on the FIRST arc over n independent POD + gauge noise draws.
+def monte_carlo_R(truth, Kg1, arc_len_s, grade, B_model, cr_model, n=200, seed=0, gauge_noise=True,
+                  which="z_inv"):
+    """Empirical std (and mean) of the measurement `which` ("z_inv" or "z") on the FIRST arc over n independent POD + gauge noise draws.
 
     Kg1: noiseless gauge gain K(t)*g(t) at 1 Hz (so the draw only varies the noise).
     """
@@ -93,5 +96,5 @@ def monte_carlo_R(truth, Kg1, arc_len_s, grade, B_model, cr_model, n=200, seed=0
     for k in range(n):
         tp, rp, vp = pod.observe(t5, s5, grade, rng)
         meas = gauge.measure(rho1, kg, 1.0, rng, noise=gauge_noise)
-        zs[k] = compute(t1, meas, tp, rp, vp, arc_len_s, B_model, cr_model)["z"][0]
+        zs[k] = compute(t1, meas, tp, rp, vp, arc_len_s, B_model, cr_model)[which][0]
     return float(np.std(zs, ddof=1)), float(np.mean(zs))
