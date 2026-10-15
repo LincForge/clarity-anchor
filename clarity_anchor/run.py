@@ -171,6 +171,54 @@ def fig_f4():
     return cells
 
 
+F5_HOSTS = 5
+F5_DRAWS = 40
+F5_SIGMA_EPS = 0.10
+
+
+def fig_f5():
+    """Fleet: 5 hosts at 400 km (good POD, 1-orbit arcs) share one gauge lot K path; eps_B,j ~ N(0, 0.10).
+    Host 1 calibrates with the mean K_hat of the first N hosts; accuracy vs N over F5_DRAWS fleets."""
+    from . import gauge
+
+    truth = scenarios.build_truth(400.0)
+    rng = np.random.default_rng(500)
+    signed = np.empty((F5_DRAWS, F5_HOSTS))
+    for d in range(F5_DRAWS):
+        K1 = gauge.k_random_walk(truth.t1, gauge.draw_k0(rng), gauge.DRIFT_SIGMA_WEEK, rng)
+        eps = rng.normal(0.0, F5_SIGMA_EPS, F5_HOSTS)
+        hosts = [scenarios.run_cell(400.0, "good", float(eps[j]), 1, keep_series=True, k_path=K1,
+                                    noise_seed=10_000 + 100 * d + j, pod_seed=20_000 + 100 * d + j, mc_draws=50)
+                 for j in range(F5_HOSTS)]
+        s0 = hosts[0]["series"]
+        tb, rho_b = s0["tb"], s0["rho_b"]
+        meas_b = s0["meas_b"]
+        win = tb >= 86400.0  # day 1 onwards (all hosts converged after one orbit at 400 km)
+        idx = np.clip(np.searchsorted(s0["t_arc"], tb, side="right") - 1, 0, None)
+        for n in range(1, F5_HOSTS + 1):
+            kfleet = np.mean([h["series"]["khat"] for h in hosts[:n]], axis=0)[idx]
+            signed[d, n - 1] = np.mean((meas_b / kfleet / rho_b - 1.0)[win])
+        print(f"F5 fleet draw {d+1}/{F5_DRAWS}", flush=True)
+    N = np.arange(1, F5_HOSTS + 1)
+    rms = np.sqrt(np.mean(signed**2, axis=0))
+    fig, ax = plt.subplots(figsize=(6.5, 4.6))
+    ax.plot(N, 100 * rms, "o-", color="C3", label=f"simulated RMS accuracy ({F5_DRAWS} fleets)")
+    ax.plot(N, 100 * F5_SIGMA_EPS / np.sqrt(N), "k--", lw=1, label="0.10/√N")
+    ax.axhline(20, color="r", lw=0.8, label="benchmark 20 %")
+    ax.set_xlabel("hosts averaged (N)")
+    ax.set_ylabel("RMS of fleet-calibrated mean rel. error (%)")
+    ax.set_title("F5 · fleet mean, 400 km, good POD, ε_B ~ N(0, 0.10), shared K_lot")
+    ax.set_xticks(N)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(RESULTS / "F5.png", dpi=130)
+    plt.close(fig)
+    out = [{"N": int(n), "rms_accuracy": float(r), "expected": float(F5_SIGMA_EPS / np.sqrt(n)),
+            "draws": F5_DRAWS} for n, r in zip(N, rms)]
+    (RESULTS / "F5.json").write_text(json.dumps(out, indent=1))
+    return out
+
+
 def _load(name):
     p = RESULTS / f"{name}.json"
     return json.loads(p.read_text()) if p.exists() else None
@@ -215,7 +263,21 @@ def write_summary():
             continue
         for c in cells:
             L.append(_row(name, c))
-    L.append("| F5 (fleet, stretch) | — | — | — | — | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | — |")
+    f5 = _load("F5")
+    if f5:
+        L += ["", f"## F5 (stretch): fleet mean, 400 km, good POD, 1-orbit arcs, ε_B ~ N(0, 0.10), shared K_lot, {f5[0]['draws']} fleets", "",
+              "Host 1 calibrates with the mean K̂ of N hosts; accuracy = RMS over fleets of the day 1–14 mean relative error.", "",
+              "| N | RMS accuracy | 0.10/√N | acc ≤20 % (RMS) |", "|---|---|---|---|"]
+        for r in f5:
+            L.append(f"| {r['N']} | {_pct(r['rms_accuracy'])} | {_pct(r['expected'])} | {metrics.verdict(r['rms_accuracy'], metrics.ACC_LIMIT)} |")
+        nn = np.array([r["N"] for r in f5], float)
+        slope = float(np.polyfit(np.log(nn), np.log([r["rms_accuracy"] for r in f5]), 1)[0])
+        L += ["", f"Expectation (spec §5): fleet-mean accuracy ∝ 1/√N. Fitted log-log slope {slope:.2f} (−0.5 expected; "
+              f"RMS over {f5[0]['draws']} fleets has ~{100/np.sqrt(2*f5[0]['draws']):.0f} % sampling error). "
+              f"Verdict: {'PASS' if abs(slope + 0.5) < 0.15 else 'FAIL'}. All hosts share one truth orbit and atmosphere "
+              "(see DECISIONS.md)."]
+    else:
+        L.append("| F5 (fleet, stretch) | — | — | — | — | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | — |")
     ens = _load("F4_ensemble")
     L += ["", f"## F4 robustness: {len(ENSEMBLE_SEEDS)} gauge seeds per cell (K(0) ~ U(0.7, 1.3) each)", ""]
     if ens:
@@ -294,7 +356,7 @@ def write_summary():
     (RESULTS / "summary.md").write_text("\n".join(L) + "\n")
 
 
-FIGS = {"F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4}
+FIGS = {"F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5}
 
 
 def main(argv=None):

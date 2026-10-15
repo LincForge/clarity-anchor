@@ -95,7 +95,8 @@ def _truth_kernel(truth):
 
 
 def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draws=MC_DRAWS,
-             composition=True, gauge_seed=GAUGE_SEED, keep_series=False):
+             composition=True, gauge_seed=GAUGE_SEED, keep_series=False, k_path=None, noise_seed=None,
+             pod_seed=None):
     """One scenario cell: truth -> gauge -> POD -> anchor -> KF -> metrics."""
     from scipy.integrate import simpson
 
@@ -105,11 +106,18 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     truth = build_truth(h_km, days=days, use_cache=use_cache)
     t1, rho1 = truth.t1, truth.rho1
     rng_g = np.random.default_rng(gauge_seed)
-    K0 = gauge.draw_k0(rng_g)
-    K1 = gauge.k_random_walk(t1, K0, gauge.DRIFT_SIGMA_WEEK, rng_g)
+    if k_path is None:
+        K0 = gauge.draw_k0(rng_g)
+        K1 = gauge.k_random_walk(t1, K0, gauge.DRIFT_SIGMA_WEEK, rng_g)
+    else:  # shared lot-level K path (F5)
+        K1 = np.asarray(k_path)
+        K0 = float(K1[0])
+    if noise_seed is not None:
+        rng_g = np.random.default_rng(noise_seed)
     g1 = gauge.composition_factor(truth.frac1) if composition else np.ones_like(t1)
     meas1 = gauge.measure(rho1, K1, g1, rng_g)
-    tp, rp, vp = pod.observe(truth.t, truth.states, grade, np.random.default_rng(POD_SEED[grade]))
+    tp, rp, vp = pod.observe(truth.t, truth.states, grade,
+                             np.random.default_rng(POD_SEED[grade] if pod_seed is None else pod_seed))
     B_model = truth.B_true * (1 + eps_B)
     cr_model = orbit.C_R * (1 + SRP_MODEL_ERR)
     arc_len = n_orb * truth.T_orb
@@ -158,6 +166,6 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     }
     if keep_series:
         out["series"] = {"tb": tb, "e_rho": e_rho, "e_k": e_k, "in_arcs": in_arcs, "rho_b": rho_b,
-                         "rho_cal": rho_cal, "t_arc": a["t_end"], "z": a["z"], "keff_true": keff_true,
+                         "rho_cal": rho_cal, "meas_b": meas_b, "t_arc": a["t_end"], "z": a["z"], "keff_true": keff_true,
                          "gbar": gbar, "khat": res_kf.x, "ksig": np.sqrt(res_kf.P)}
     return out

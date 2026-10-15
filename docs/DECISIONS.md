@@ -112,3 +112,10 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   the m(t) field), not the ~0.3 m the spec assumed, and endpoint POD noise is only ~0.55 J/kg (good).
 - Every scenario sees the identical truth atmosphere per altitude and one storm; the gauge measures the
   storm directly, so the storm has no visible effect on ρ_cal (K is a gain).
+
+## F5 (stretch)
+- 5 hosts at 400 km, good POD, 1-orbit arcs, all flying the **same** truth orbit/atmosphere (simplest
+  choice; hosts differ only in ε_B,j ~ N(0, 0.10), POD noise and gauge noise). One lot-level K(t) path
+  (K(0) ~ U(0.7, 1.3)) shared by all hosts' gauges. Host 1's 30 s product is calibrated with the mean of
+  the first N hosts' causal K̂; accuracy = RMS over 40 fleet draws of the days 1–14 mean relative error.
+  MC R uses 50 draws per host (not 200) to keep the 200 host runs at ~2 min.
