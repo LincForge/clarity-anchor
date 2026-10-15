@@ -78,3 +78,37 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   before the first arc). No smoothing — this is the real-time product.
 - Test (c): unit test K̂ = 1.2 exactly with R = 0; end-to-end (truth → gauge K = 1.2 → anchor → KF)
   K̂ = 1.1999981 after one arc (error 1.6e-6, the SRP-shadow term of test (b')); gate 1e-5.
+
+## Scenarios and metrics
+- Seeds: atmosphere phases 1; gauge 7 (K(0) = 1.075 — close to nominal, so see the ensemble); POD good 11,
+  COTS 12; Monte Carlo R 101. Every figure regenerates with `uv run python -m clarity_anchor.run --fig all`
+  (~6 min, single process; truths cached in `cache/`, gitignored).
+- The SRP model error (C_R·1.10) is on in every scenario; B_model = B_true·(1+ε_B).
+- K_eff,true per arc = kernel-weighted mean of K(t)·g(t) over the arc × (1+ε_B) (exactly what a
+  noiseless z measures). F1's "K̂ relative error" is K̂(t)/K_eff,true(arc containing t) − 1 at 30 s.
+- Convergence time = earliest t after which |K̂/K_eff,true − 1| < 5 % for the rest of the run; NaN if the
+  last sample is outside. Because K̂ only updates at arc ends, convergence time is bounded below by one
+  T_arc. A cell can "converge" spuriously when its filter barely moves (R huge) but the truth K wanders
+  within 5 % of the prior; such cells are flagged † when the final posterior σ exceeds 5 %.
+- Accuracy/precision window: from the convergence time to day 14; if not converged, days 7–14.
+  Resolution = measured median spacing of the delivered ρ_cal series (30 s by construction).
+- An "uncalibrated accuracy" column (K̂ ≡ 1, ground calibration only) is reported so a PASS can be
+  attributed to the anchor rather than to a lucky K(0).
+- **F4 robustness ensemble** (added; spec silent): every F4 cell is rerun with gauge seeds 1–10 (fresh
+  K(0) ~ U(0.7, 1.3) and K path each). The main-seed figure and an ensemble-median panel are both shown.
+- No duration reduction was needed: the full F4 grid plus ensemble (264 cell runs) takes ~5.5 min.
+- Expectation 4 (composition drift "around the storm") is not testable as specified: the §2 storm is a
+  density-only multiplier at fixed ap = 15, so it cannot change composition. Reported UNMEASURED with
+  the measured background ḡ drift.
+
+## Findings flagged for the reviewer
+- **Ratio-estimator bias.** z = I_gauge/I_pod has POD noise in the denominator, so E[z] ≈ K_eff(1 + σ_z²).
+  At 600 km / good / 1-orbit arcs (σ_z ≈ 21 %) the mean of z/K_eff,true − 1 over 208 arcs is +4.3 % ±
+  1.8 %, matching σ² = 4.4 %, and K̂ sits ~+5 % high for days. At σ_z ≳ 50 % (600 km COTS 1-orbit,
+  σ_z ≈ 98×) z is meaningless because I_pod crosses zero. Filtering on 1/K (measurement I_pod/I_gauge,
+  noise in the numerator) would remove the bias; not done here because spec §4 fixes x = K_eff, z = ratio.
+- **600 km converges much faster than pre-registered** (0.67 d with 10-orbit arcs vs 5–10 d expected):
+  the simulated per-orbit drag work at 600 km is ~3.7 J/kg (≈0.9 m/orbit decay at F10.7 = 150 with
+  the m(t) field), not the ~0.3 m the spec assumed, and endpoint POD noise is only ~0.55 J/kg (good).
+- Every scenario sees the identical truth atmosphere per altitude and one storm; the gauge measures the
+  storm directly, so the storm has no visible effect on ρ_cal (K is a gain).
