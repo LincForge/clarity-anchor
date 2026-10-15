@@ -80,7 +80,7 @@ def build_truth(h_km: float, days: float = 14.0, iterations: int = 2, use_cache:
 # ---------------------------------------------------------------------------------------------
 # Scenario cells
 # ---------------------------------------------------------------------------------------------
-GAUGE_SEED = 7
+GAUGE_SEED = 10  # K(0) = 1.274, the farthest from 1 among seeds 1-10 (round 2, headline honesty)
 POD_SEED = {"good": 11, "cots": 12, "perfect": 13}
 MC_SEED = 101
 MC_DRAWS = 200

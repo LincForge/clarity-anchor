@@ -43,3 +43,13 @@ def test_bin30():
     tb, xb = gauge.bin_mean(t, x, 30.0)
     assert np.allclose(tb, [14.5, 44.5, 74.5])  # mean sample time of each bin
     assert np.allclose(xb, [14.5, 44.5, 74.5])
+
+
+def test_main_gauge_seed_is_farthest_from_nominal():
+    """Round 2: the headline run uses the seed in 1..10 whose K(0) is farthest from 1."""
+    from clarity_anchor import scenarios
+
+    k0 = {s: gauge.draw_k0(np.random.default_rng(s)) for s in range(1, 11)}
+    far = max(k0, key=lambda s: abs(k0[s] - 1))
+    assert scenarios.GAUGE_SEED == far
+    assert abs(k0[far] - 1) > 0.25

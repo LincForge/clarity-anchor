@@ -33,3 +33,18 @@ def test_cell_epsB_bias_short_run():
     res = scenarios.run_cell(400.0, "good", eps_B=0.10, n_orb=1, days=1.0, use_cache=False, mc_draws=50)
     assert res["mean_err"] == pytest.approx(-0.10 / 1.10, abs=0.02)
     assert res["resolution_s"] == pytest.approx(30.0)
+
+
+def test_decay_signal_row_400km():
+    """Round 2 table: median per-orbit drag work, equivalent da, endpoint energy noise per POD grade."""
+    from clarity_anchor import orbit
+
+    tr = scenarios.build_truth(400.0, days=1.0, use_cache=False)
+    row = metrics.decay_signal(tr)
+    a = orbit.R_E + 400e3
+    assert 50 < row["drag_work_J_per_kg"] < 150
+    assert row["da_m"] == pytest.approx(2 * a**2 / orbit.MU * row["drag_work_J_per_kg"], rel=0.01)
+    v, r = np.sqrt(orbit.MU / a), a
+    sig = np.sqrt(2) * np.sqrt((v * 0.05e-3) ** 2 + (orbit.MU / r**2 * 0.05) ** 2)
+    assert row["sigma_dE_good"] == pytest.approx(sig, rel=0.05)
+    assert row["sigma_dE_cots"] == pytest.approx(4 * sig, rel=0.05)
