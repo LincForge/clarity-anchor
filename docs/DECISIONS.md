@@ -18,3 +18,17 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
 - Test (a) is run with the atmosphere co-rotation switched off (ω_atm = 0): the analytic
   da/dt = −Bρ√(μa) assumes v_rel = v. Achieved: relative error 1.6e-7 (gate 1 %).
 - Test (d): achieved max relative J2-energy error 2.2e-10 over 14 d at 5 s (gate 1e-9 met).
+
+## Atmosphere
+- pymsis cannot be called per RK4 stage at useful speed, so the truth is a **tabulated field**:
+  NRLMSIS 2.0 evaluated along a reference trajectory at 10 s (and 1 km radially above it, giving a local
+  scale height H(t)), then ρ(t, r) = ρ_MSIS(t, r_ref(t))·exp(−(|r| − |r_ref(t)|)/H(t))·m(t)·storm(t),
+  log-linear in time between knots. Drag and gauge sample the same field, so the anchor sees a
+  self-consistent truth. The reference trajectory is iterated (see Scenarios) so the offset is small.
+- Geodetic altitude on WGS84 (Earth rotation via GMST only, no precession/nutation/polar motion).
+- Species: composition is taken as the species **mass fractions** of N2, O2, O, He, H along the reference
+  trajectory (held fixed under the small radial offset and the m(t)/storm multipliers). The storm bump is
+  a pure density multiplier (spec §2), so it does **not** change composition. Total density is MSIS
+  column 0 (total mass density).
+- φ1, φ2 drawn from `default_rng(1)`; storm centred at t = 5.0 d; m(t) uses the nominal Keplerian
+  period of the scenario altitude. The storm is present in every scenario (it is part of the §2 truth).
