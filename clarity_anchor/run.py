@@ -26,7 +26,7 @@ DAY = 86400.0
 
 
 def _scalars(r):
-    return {k: v for k, v in r.items() if k != "series"}
+    return {k: v for k, v in r.items() if k not in ("series", "wall_s")}  # wall_s: not deterministic
 
 
 def _save_json(name, cells):
