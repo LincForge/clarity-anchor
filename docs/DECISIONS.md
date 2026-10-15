@@ -72,7 +72,7 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   1 orbit: MC std 0.997 % vs endpoint-energy estimate 0.992 %.
 
 ## Filter
-- State x = K_eff, prior x0 = 1.0 (ground calibration nominal), P0 = 0.3²; random-walk process noise
+- *(Round 1; superseded by the round-2 inverse estimator below.)* State x = K_eff, prior x0 = 1.0 (ground calibration nominal), P0 = 0.3²; random-walk process noise
   Q = (0.03)²/week · x̂² · Δt (relative, matching the gauge drift). Update at each arc end with z_arc.
 - ρ_cal(t) = ρ_meas,30s(t)/K̂(t) with the **causal** estimate (latest update at or before t; the prior
   before the first arc). No smoothing — this is the real-time product.
@@ -80,7 +80,8 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   K̂ = 1.1999981 after one arc (error 1.6e-6, the SRP-shadow term of test (b')); gate 1e-5.
 
 ## Scenarios and metrics
-- Seeds: atmosphere phases 1; gauge 7 (K(0) = 1.075 — close to nominal, so see the ensemble); POD good 11,
+- Seeds: atmosphere phases 1; gauge 10 (round 2; K(0) = 1.274, the farthest from 1 among seeds 1–10 —
+  round 1 used seed 7, K(0) = 1.075, which flattered the uncalibrated baseline); POD good 11,
   COTS 12; Monte Carlo R 101. Every figure regenerates with `uv run python -m clarity_anchor.run --fig all`
   (~6 min, single process; truths cached in `cache/`, gitignored).
 - The SRP model error (C_R·1.10) is on in every scenario; B_model = B_true·(1+ε_B).
@@ -119,3 +120,30 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   (K(0) ~ U(0.7, 1.3)) shared by all hosts' gauges. Host 1's 30 s product is calibrated with the mean of
   the first N hosts' causal K̂; accuracy = RMS over 40 fleet draws of the days 1–14 mean relative error.
   MC R uses 50 draws per host (not 200) to keep the 200 host runs at ~2 min.
+
+## Round 2 (2026-10-15, reviewer-approved)
+- **Inverse estimator.** The filter state is y = 1/K_eff and the measurement z_inv = I_pod/I_gauge, so the
+  POD noise sits in the numerator (linear, unbiased) and only the ~0.1 %-per-arc gauge noise is in the
+  denominator. Prior y0 = 1, P0 = 0.3²; process noise Q = 0.03²/week·ŷ²·Δt (relative random walk, the same
+  form as before since ln y = −ln K). R = var(z_inv) from the same 200-draw first-arc Monte Carlo.
+  ρ_cal = ρ_meas,30s·ŷ (causal). The round-1 ratio path stays behind `run_cell(estimator="ratio")`
+  (it costs one branch). sim-spec §3/§4 amended in place.
+- Convergence is now judged on the calibration-factor error ŷ·K_eff,true − 1 (5 % band, same rule).
+- Bias check (test): 600 km, good POD, 1-orbit arcs, 208 arcs: mean(z_inv·K_eff,true − 1) = −0.03 %
+  (round-1 z: +4.3 %). The standard error of that mean is 1.3 %, larger than the ±1 % gate, so the gate
+  passes on the central value, not with statistical power; the paired round-1 number on the same noise
+  was +4.3 % ± 1.8 %.
+- The † flag now means "final posterior σ ≥ 5 %": the cell converged by the error rule but its own
+  filter cannot resolve 5 %.
+- **Decay-signal table** (summary.md): median |W_drag| per 1-orbit arc from the 14-day truth with perfect
+  POD and an exact SRP model, Δa = 2a²|W|/μ with a the mean osculating a of the first 200 POD epochs, and
+  σ(ΔE) = √2·std(E_POD − E_true) from one POD noise draw per grade over all 10 s epochs.
+- F5 was rerun unchanged in design (it uses the fleet mean of 1/ŷ_j as K̂).
+
+## Not modeled (proposal must list as risks)
+- Gravity-field model error in ΔE: truth and estimator share point mass + J2, so higher harmonics, tides and their mismodelling never enter ΔE_pod.
+- Earth albedo and infrared radiation pressure.
+- Thermal re-radiation (spacecraft thermal recoil).
+- Attitude-control and thruster accelerations (including unloading and leaks; manoeuvre arcs are excluded by assumption).
+- Time-correlated POD errors (all POD noise here is white per 10 s epoch).
+- Gauge response time (the 1 Hz gauge responds instantly to ρ).
