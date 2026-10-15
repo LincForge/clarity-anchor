@@ -41,3 +41,32 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   more conservative than quadrature). No clipping (MSIS density never approaches the floor here).
 - g(t) uses species mass fractions (spec writes ρ_i) normalised to 1 at the first 1 Hz sample.
 - 30 s bins are contiguous, non-overlapping; each bin is time-stamped at its mean sample time.
+
+## Truth construction
+- Pass 0 propagates drag-free and tabulates MSIS along it; then 2 iterations of (propagate with drag
+  using the previous field → re-tabulate along the result); the final truth is propagated with the last
+  field. Residual max radial offset between the field's reference trajectory and the truth: < 1 cm at
+  400 km (1-day check), so the exponential scale-height correction is effectively unused.
+- Truth at 1 Hz (for the gauge) is cubic-Hermite-interpolated from the 5 s RK4 states and the field is
+  evaluated at those positions.
+
+## Anchor (spec §3) — two corrections to the spec's algebra
+1. **Kernel.** The drag power is a_drag·v = −½Bρ|v_rel|(v_rel·v). The spec writes the weighting as
+   |v_rel|²(v_rel·v̂), which differs from that by |v_rel|/|v| (≈0.3 % at i = 87°, varying around the
+   orbit) and so cannot give z = 1 to 1e-6. Both integrals use the exact kernel w = |v_rel|(v_rel·v);
+   the "identical weighting in both integrals" intent is kept.
+2. **Sign of the ε_B exponent.** I_pod = −2W_drag/B_model = (B_true/B_model)∫ρw = I_true/(1+ε_B), so
+   z = I_gauge/I_pod = K·ḡ·(1+ε_B), not K·ḡ·(1+ε_B)^(−1). Consequently ρ_cal = ρ_meas/K̂ is biased by
+   1/(1+ε_B) − 1 = −ε_B/(1+ε_B): −4.8 %, −9.1 %, −16.7 % for ε_B = 0.05/0.10/0.20 (close to, but
+   slightly below, the spec's "1:1").
+- Arcs: contiguous, non-overlapping, length rounded to the 10 s POD grid, sharing endpoints (so the
+  endpoint POD noise of consecutive arcs is anti-correlated; the scalar KF treats arcs as independent,
+  which is conservative). 1 Hz kinematics for the kernel and the SRP work come from cubic-Hermite
+  interpolation of the (noisy) POD states. Integrals use composite Simpson at 1 s.
+- **Test (b)** achieved tolerances (400 km, 15 one-orbit arcs, 5 s truth step): SRP off: max|z−1| =
+  4.7e-7 (gate 1e-6 met; 4.0e-8 at 2.5 s step, i.e. RK4 truncation). SRP on with an exact SRP model:
+  5.3e-6 — the cylindrical shadow is a discontinuity that fixed-step RK4 integrates only to O(dt) at each
+  crossing (~4e-4 J/kg per orbit vs 83 J/kg drag work). Gated at 1e-5; negligible next to POD noise (~1 %).
+- **R**: empirical std of z over 200 draws (fresh POD noise + fresh gauge noise) on the FIRST arc of each
+  (altitude, POD grade, T_arc) cell, used as a constant R for the whole run. Check at 400 km / good /
+  1 orbit: MC std 0.997 % vs endpoint-energy estimate 0.992 %.
