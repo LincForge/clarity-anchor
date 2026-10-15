@@ -32,3 +32,12 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
   column 0 (total mass density).
 - φ1, φ2 drawn from `default_rng(1)`; storm centred at t = 5.0 d; m(t) uses the nominal Keplerian
   period of the scenario altitude. The storm is present in every scenario (it is part of the §2 truth).
+
+## Gauge
+- K random walk is multiplicative: ln K diffuses with σ = 0.03 per √week (so 3 %/week 1-σ); K(0) from
+  U(0.7, 1.3) with the scenario gauge seed. Same gauge seed (hence same K(t) path) in every scenario,
+  so scenarios differ only in the factor under study.
+- Noise σ = 0.02·ρ_true + 1e-14 kg/m³ (linear sum, the literal reading of "2 % … plus an absolute floor";
+  more conservative than quadrature). No clipping (MSIS density never approaches the floor here).
+- g(t) uses species mass fractions (spec writes ρ_i) normalised to 1 at the first 1 Hz sample.
+- 30 s bins are contiguous, non-overlapping; each bin is time-stamped at its mean sample time.
