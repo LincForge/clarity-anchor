@@ -1,7 +1,7 @@
 [project]
 name = "clarity-anchor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simulation: in-orbit calibration of a cheap thermospheric density gauge against host GNSS orbit decay"
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.11.2",
