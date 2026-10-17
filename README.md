@@ -72,5 +72,4 @@ and the reviewer findings: [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## License
 
-No license has been chosen yet. You are welcome to read the code and run it to check the results.
-Please ask before reusing it.
+MIT License — see [`LICENSE`](LICENSE).
