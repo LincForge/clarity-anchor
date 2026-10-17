@@ -13,7 +13,9 @@ gauge's 30-second resolution with the POD's absolute accuracy.
 Context: LINC Innovations is exploring this concept for the NASA TechLeap Orbital Clarity Challenge
 (https://occ.nasatechleap.org). This is our own work; it is not affiliated with or endorsed by NASA.
 
-## Results (synthetic NRLMSIS 2.0 truth, 14 days, worst-case gauge seed K(0) = 1.274)
+**90-second explainer video:** [https://youtu.be/0Iho34Nu2k0](https://youtu.be/0Iho34Nu2k0)
+
+## Results (synthetic NRLMSIS 2.0 truth, 14 days, gauge seed K(0) = 1.274 — farthest from nominal of 10 seeds)
 
 Every number below is copied from [`results/summary.md`](results/summary.md), which the code
 regenerates. Benchmarks are the challenge's in-situ density targets: accuracy ≤ 20 %,
