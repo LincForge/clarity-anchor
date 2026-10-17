@@ -1,4 +1,4 @@
-"""Scalar Kalman filter on K_eff (spec §4)."""
+"""Scalar Kalman filter on y = 1/K_eff (default inverse estimator) or K_eff (ratio mode); see spec §4."""
 from __future__ import annotations
 
 from dataclasses import dataclass

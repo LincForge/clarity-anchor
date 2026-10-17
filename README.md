@@ -30,8 +30,13 @@ precision ≤ 10 %, resolution ≤ 30 s.
 | Drag work per orbit, 300 → 600 km | 627.8 → 4.7 J/kg (Δa 140 → 1.2 m) |
 | Fleet of N hosts with independent 10 % C_D errors | RMS accuracy 9.0 % (N = 1) → 4.6 % (N = 5) |
 
-Figures: `results/F1.png` (lock-in by altitude), `F2.png` (storm day, ε_B = 0.10),
-`F3.png` (accuracy vs ballistic-coefficient error), `F4.png` (convergence grid), `F5.png` (fleet).
+![F1: Calibration lock-in by altitude](results/F1.png)
+
+![F2: Storm tracking at 400 km with 10% drag-model error](results/F2.png)
+
+Additional figures: [`results/F3.png`](results/F3.png) (accuracy vs ballistic-coefficient error),
+[`results/F4.png`](results/F4.png) (convergence grid across altitudes, POD grades, and arc lengths),
+[`results/F5.png`](results/F5.png) (fleet averaging across $N$ hosts).
 
 ## What this does NOT show
 

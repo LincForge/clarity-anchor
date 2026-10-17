@@ -1,6 +1,6 @@
 # Simulation spec — orbit-anchored calibration of a cheap in-situ density gauge
 
-Status: DRAFT for CEO nod · 2026-10-15 · author: Fable 5.1 · executor: Opus 5.5 (TDD) · reviewer: Fable
+Date: 2026-10-15 (with Round-2 estimator amendments)
 
 ## 1. The claim this simulation must prove or kill
 
@@ -112,17 +112,14 @@ convergence), precision (std of relative error), convergence time, and PASS/FAIL
 
 ## 7. Repository and process
 
-- New private repo `LincForge/clarity-anchor` (HTTPS remote), Python 3.12, `uv`, `numpy`,
-  `scipy`, `pymsis`, `matplotlib`, `pytest`. Package `clarity_anchor/` with modules `orbit`,
-  `atmosphere`, `gauge`, `pod`, `anchor`, `filter`, `metrics`, `scenarios`; CLI
-  `python -m clarity_anchor.run --fig F1`.
+- Repository `LincForge/clarity-anchor`, Python 3.12, `uv`, `numpy`, `scipy`, `pymsis`,
+  `matplotlib`, `pytest`. Package `clarity_anchor/` with modules `orbit`, `atmosphere`, `gauge`,
+  `pod`, `anchor`, `filter`, `metrics`, `scenarios`; CLI `python -m clarity_anchor.run --fig F1`.
 - TDD. Analytic tests before code: (a) constant ρ, circular orbit, no J2 → da/dt = −B ρ √(μ a)
   within 1 %; (b) noiseless anchor ratio = 1 to 1e-6; (c) K = 1.2 noiseless → K̂ = 1.2 after one
   arc; (d) J2 energy is conserved to 1e-9 relative over 14 days with drag and SRP off.
 - Deterministic seeds. Every figure regenerable from one command. Commit results PNGs.
-- Timebox: two Opus sessions. Stop and report if the Tier 1 figures F1–F4 are not done by then.
-- Review gate: Fable reads the physics modules and the summary before anything is quoted in the
-  proposal. The proposal cites only numbers that appear in `results/summary.md`.
+- Every quoted result must trace directly to `results/summary.md`.
 
 ## 8. Out of scope (do not build)
 
