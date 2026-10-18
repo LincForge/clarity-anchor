@@ -86,7 +86,7 @@ MC_SEED = 101
 MC_DRAWS = 200
 SRP_MODEL_ERR = 0.10
 ZR_SEED = 31  # round 3: zero-read noise stream, separate so the gauge noise stream is unchanged
-VARIANTS = ("A", "B")  # round 3: A = no mitigation, B = shutter zero-read
+VARIANTS = ("A", "B", "C")  # round 3: A = no mitigation, B = shutter zero-read, C = 2-state [y, c] (stretch)
 
 
 def _truth_kernel(truth):
@@ -147,7 +147,15 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     r_std, r_mean = anchor.monte_carlo_R(truth, K1 * g1, arc_len, grade, B_model, cr_model,
                                          n=mc_draws, seed=MC_SEED, which=zkey)
     R = r_std**2
-    res_kf = kf.run(a["t_end"], a[zkey], R)
+    res2 = None
+    if off is not None and variant == "C":
+        # 2-state [y, d]: z_inv = y - d q_k, q_k = rho_s W_k / I_gauge,k, rho_s = median rho_meas over the first arc
+        rho_s = float(np.median(meas1[t1 <= a["t_end"][0]]))
+        q_reg = rho_s * a["W_kernel"] / a["I_gauge"]
+        res2 = kf.run2(a["t_end"], a["z_inv"], q_reg, R)
+        res_kf = kf.KFResult(res2.t, res2.x[:, 0], res2.P[:, 0, 0])
+    else:
+        res_kf = kf.run(a["t_end"], a[zkey], R)
 
     # truth K_eff per arc: kernel-weighted K*g over the arc, times (1+eps_B)
     w1 = _truth_kernel(truth)
@@ -162,6 +170,8 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     _, rho_b = gauge.bin_mean(t1, rho1, 30.0)
     xhat_b = res_kf.at(tb)
     rho_cal = meas_b * xhat_b if inv else meas_b / xhat_b
+    if res2 is not None:
+        rho_cal = rho_cal - res2.at(tb)[:, 1] * rho_s  # y_hat (rho_meas - c_hat) = y_hat rho_meas - d_hat rho_s
     e_rho = rho_cal / rho_b - 1.0
     in_arcs = tb < a["t_end"][-1]
     arc_of_bin = np.clip(np.searchsorted(a["t_start"], tb, side="right") - 1, 0, len(a["z"]) - 1)
@@ -191,6 +201,15 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     }
     if off is not None:
         out.update(_offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip))
+    if res2 is not None:
+        c_true = simpson((off["b1"] * w1)[idx], dx=1.0, axis=1) / simpson(w1[idx], dx=1.0, axis=1)
+        half = len(res2.t) // 2
+        out.update({"c_post_corr_final": float(res2.corr[-1]),
+                    "c_post_corr_median_2nd_half": float(np.median(res2.corr[half:])),
+                    "c_hat_final_over_rho_ref": float(res2.x[-1, 1] / res2.x[-1, 0] * rho_s / off["rho_ref"]),
+                    "c_true_over_rho_ref_mean": float(np.mean(c_true) / off["rho_ref"]),
+                    "c_sigma_final_over_rho_ref": float(np.sqrt(res2.P[-1, 1, 1]) / res2.x[-1, 0] * rho_s / off["rho_ref"]),
+                    "q_reg_rel_std": float(np.std(q_reg) / np.mean(q_reg))})
     if keep_series:
         out["series"] = {"tb": tb, "e_rho": e_rho, "e_k": e_k, "in_arcs": in_arcs, "rho_b": rho_b,
                          "rho_cal": rho_cal, "meas_b": meas_b, "t_arc": a["t_end"], "z": a["z"], "z_inv": a["z_inv"],

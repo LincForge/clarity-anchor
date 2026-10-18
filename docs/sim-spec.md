@@ -43,6 +43,8 @@ The estimator models SRP with C_R·(1 + 0.10) to inject a realistic 10 % model e
 1 at t = 0, with cold-cathode relative sensitivities s = {N2: 1.00, O2: 1.00, O: 0.80, He: 0.18,
 H: 0.45}. n is white, σ = 2 % of ρ_true plus an absolute floor of 1e-14 kg/m³ (gauge lower
 limit after ram compression). Deliver ρ_meas averaged to 30 s bins as well.
+*(Round 3, 2026-10-18: an additive, sun-correlated chamber background b(t) is added in scenario F6 only;
+see `docs/round3-offset-spec.md`. F1–F5 keep the model above.)*
 
 **POD.** Truth state at 10 s plus white noise: "good" = 5 cm position, 0.05 mm/s velocity per
 axis; "COTS" = 20 cm, 0.2 mm/s. Maneuvers are out of scope (arcs with thrust are excluded in

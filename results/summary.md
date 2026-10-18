@@ -146,3 +146,100 @@ Median true drag work per one-orbit arc (14-day truth, F10.7 = F10.7a = 150, ap 
 | F4 | 600 | cots | 1 | 208 | 53.31 % | 64.82 % | 0.41 % | -2.23 % | 5.03 % |
 | F4 | 600 | cots | 3 | 69 | 17.92 % | 23.88 % | 0.29 % | -2.13 % | 3.41 % |
 | F4 | 600 | cots | 10 | 20 | 5.44 % | 5.86 % | 0.44 % | -0.35 % | 2.36 % |
+
+## F6: additive sun-correlated offset (round 3, docs/round3-offset-spec.md)
+
+Gauge truth ρ_meas = K g ρ_true + b(t) + n with b(t) = ρ_ref·(β0 + β1·s(t)), s the 300 s first-order lag of the cylindrical-shadow sunlit indicator, ρ_ref the median ρ_true over day 0–1 at that altitude. Good POD, 1-orbit arcs, ε_B = 0, gauge seed 10. Variant A: round-2 estimator unchanged. Variant B: shutter zero-read every 300 s (1 s sample, own noise draw), b̂ linear between zero-reads, ρ_corr = ρ_meas − b̂ feeds the anchor and the 30 s product (shutter seconds skipped). Variant C (stretch): no zero-reads, 2-state filter [y, c] with c a slowly varying additive term in I_gauge. Accuracy/precision/convergence as in the main table; sunlit/eclipse split on s > 0.5 / s < 0.5; offset_corr = Pearson(e_ρ, b/ρ_true) over the same window. The β sweep is relative to ρ_ref, so one β is a different absolute pressure at each altitude.
+
+| h (km) | β0 | β1 | variant | convergence | accuracy | precision | acc_sunlit | acc_eclipse | offset_corr | acc ≤20 % | prec ≤10 % |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 400 | 0.0 | 0.0 | A | 0.06 d | 0.04 % (after conv.) | 1.13 % | 0.36 % | 0.66 % | n/a | PASS | PASS |
+| 400 | 0.0 | 0.0 | B | 0.06 d | 0.04 % (after conv.) | 1.14 % | 0.35 % | 0.66 % | n/a | PASS | PASS |
+| 400 | 0.0 | 0.0 | C | 0.77 d | 0.01 % (after conv.) | 1.17 % | 0.37 % | 0.57 % | n/a | PASS | PASS |
+| 400 | 0.1 | 0.1 | A | not converged in 14 d | 0.33 % (days 7–14, no conv.) | 3.53 % | 1.53 % | 1.57 % | 0.96 | PASS | PASS |
+| 400 | 0.1 | 0.1 | B | 0.06 d | 0.04 % (after conv.) | 1.24 % | 0.42 % | 0.77 % | 0.61 | PASS | PASS |
+| 400 | 0.1 | 0.1 | C | 0.77 d | 0.49 % (after conv.) | 4.02 % | 2.40 % | 5.02 % | 0.59 | PASS | PASS |
+| 400 | 0.3 | 0.3 | A | not converged in 14 d | 0.86 % (days 7–14, no conv.) | 7.49 % | 3.26 % | 2.93 % | 0.99 | PASS | PASS |
+| 400 | 0.3 | 0.3 | B | 0.06 d | 0.05 % (after conv.) | 1.65 % | 0.54 % | 0.98 % | 0.54 | PASS | PASS |
+| 400 | 0.3 | 0.3 | C | 0.06 d | 1.46 % (after conv.) | 10.64 % | 6.47 % | 13.90 % | 0.55 | PASS | FAIL |
+| 400 | 0.0 | 0.3 | A | not converged in 14 d | 0.62 % (days 7–14, no conv.) | 8.44 % | 5.01 % | 9.54 % | 0.99 | PASS | PASS |
+| 400 | 0.0 | 0.3 | B | 0.06 d | 0.05 % (after conv.) | 1.52 % | 0.54 % | 0.98 % | 0.66 | PASS | PASS |
+| 400 | 0.0 | 0.3 | C | 0.64 d | 1.50 % (after conv.) | 10.68 % | 6.46 % | 14.00 % | 0.93 | PASS | FAIL |
+| 600 | 0.0 | 0.0 | A | 0.47 d | 1.50 % (after conv.) | 2.89 % | 0.20 % | 3.76 % | n/a | PASS | PASS |
+| 600 | 0.0 | 0.0 | B | 0.47 d | 1.53 % (after conv.) | 4.88 % | 0.19 % | 3.86 % | n/a | PASS | PASS |
+| 600 | 0.0 | 0.0 | C | 5.10 d † (marginal: final posterior σ 9.3 % ≥ the 5 % tolerance) | 1.90 % (after conv.) | 3.40 % | 0.27 % | 4.75 % | n/a | PASS | PASS |
+| 600 | 0.1 | 0.1 | A | not converged in 14 d | 0.64 % (days 7–14, no conv.) | 3.74 % | 0.33 % | 2.32 % | 0.75 | PASS | PASS |
+| 600 | 0.1 | 0.1 | B | 0.47 d | 1.55 % (after conv.) | 5.08 % | 0.14 % | 4.00 % | 0.01 | PASS | PASS |
+| 600 | 0.1 | 0.1 | C | 2.89 d † (marginal: final posterior σ 9.9 % ≥ the 5 % tolerance) | 2.71 % (after conv.) | 6.75 % | 1.74 % | 10.46 % | -0.04 | PASS | PASS |
+| 600 | 0.3 | 0.3 | A | not converged in 14 d | 1.29 % (days 7–14, no conv.) | 7.25 % | 1.84 % | 0.34 % | 0.96 | PASS | PASS |
+| 600 | 0.3 | 0.3 | B | 0.47 d | 1.57 % (after conv.) | 5.52 % | 0.02 % | 4.27 % | 0.02 | PASS | PASS |
+| 600 | 0.3 | 0.3 | C | 0.07 d † (marginal: final posterior σ 11.1 % ≥ the 5 % tolerance) | 3.98 % (after conv.) | 13.74 % | 5.56 % | 20.55 % | 0.04 | PASS | FAIL |
+| 600 | 0.0 | 0.3 | A | not converged in 14 d | 2.27 % (days 7–14, no conv.) | 9.14 % | 3.46 % | 12.23 % | 0.98 | PASS | PASS |
+| 600 | 0.0 | 0.3 | B | 0.47 d | 1.57 % (after conv.) | 5.17 % | 0.02 % | 4.26 % | 0.39 | PASS | PASS |
+| 600 | 0.0 | 0.3 | C | 2.89 d † (marginal: final posterior σ 10.0 % ≥ the 5 % tolerance) | 4.81 % (after conv.) | 14.50 % | 5.34 % | 22.47 % | 0.86 | PASS | FAIL |
+
+offset_corr is n/a at (0, 0) because b ≡ 0.
+
+### F6 diagnostics
+
+prec_sunlit/prec_eclipse: std of e_ρ in the sunlit/eclipse bins. Low/high ρ quartile: abs(mean) and RMS of e_ρ over the bins with ρ_true in the lowest/highest quartile of the window. Baseline corr: Pearson correlation the NO-offset product (variant A at (0, 0), same altitude and window) already has with this cell's b/ρ shape (orbital structure of the round-2 error, e.g. the composition term, that is not offset leakage). B, noise-free zero-reads: the same B cell with n_z = 0, which separates zero-read noise from interpolation error.
+
+| h (km) | β0 | β1 | variant | prec_sunlit | prec_eclipse | low-ρ quartile: abs(mean) / RMS | high-ρ quartile: abs(mean) / RMS | mean b/ρ | baseline corr | b̂ error std (rel., B) | B noise-free zero-reads: acc / prec |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 400 | 0.0 | 0.0 | A | 1.08 % | 0.90 % | 0.08 % / 1.26 % | 0.37 % / 0.81 % | 0.00 % | n/a | — | — |
+| 400 | 0.0 | 0.0 | B | 1.09 % | 0.92 % | 0.08 % / 1.27 % | 0.36 % / 0.80 % | 0.00 % | n/a | 0.21 % | 0.04 % / 1.13 % |
+| 400 | 0.0 | 0.0 | C | 1.13 % | 0.98 % | 0.17 % / 1.28 % | 0.35 % / 0.84 % | 0.00 % | n/a | — | — |
+| 400 | 0.1 | 0.1 | A | 3.80 % | 1.87 % | 1.13 % / 4.06 % | 2.06 % / 2.27 % | 14.18 % | 0.63 | — | — |
+| 400 | 0.1 | 0.1 | B | 1.19 % | 0.95 % | 0.04 % / 1.48 % | 0.35 % / 0.83 % | 14.13 % | 0.62 | 0.56 % | 0.04 % / 1.20 % |
+| 400 | 0.1 | 0.1 | C | 1.77 % | 1.75 % | 1.96 % / 5.17 % | 1.10 % / 1.67 % | 14.10 % | 0.62 | — | — |
+| 400 | 0.3 | 0.3 | A | 8.18 % | 3.94 % | 3.20 % / 8.88 % | 4.65 % / 4.98 % | 42.53 % | 0.63 | — | — |
+| 400 | 0.3 | 0.3 | B | 1.58 % | 1.30 % | 0.03 % / 2.22 % | 0.32 % / 0.95 % | 42.39 % | 0.62 | 1.38 % | 0.05 % / 1.48 % |
+| 400 | 0.3 | 0.3 | C | 3.58 % | 4.20 % | 5.95 % / 13.96 % | 4.06 % / 4.97 % | 42.39 % | 0.62 | — | — |
+| 400 | 0.0 | 0.3 | A | 5.06 % | 3.72 % | 4.20 % / 10.81 % | 0.63 % / 1.34 % | 14.77 % | 0.63 | — | — |
+| 400 | 0.0 | 0.3 | B | 1.44 % | 1.14 % | 0.02 % / 2.07 % | 0.33 % / 0.85 % | 14.94 % | 0.64 | 1.12 % | 0.05 % / 1.48 % |
+| 400 | 0.0 | 0.3 | C | 3.56 % | 4.22 % | 6.29 % / 14.06 % | 4.07 % / 5.01 % | 14.92 % | 0.64 | — | — |
+| 600 | 0.0 | 0.0 | A | 2.10 % | 2.68 % | 4.01 % / 4.87 % | 0.61 % / 1.87 % | 0.00 % | n/a | — | — |
+| 600 | 0.0 | 0.0 | B | 3.62 % | 5.82 % | 4.27 % / 7.53 % | 0.57 % / 2.63 % | 0.00 % | n/a | 4.81 % | 1.50 % / 2.89 % |
+| 600 | 0.0 | 0.0 | C | 2.07 % | 3.39 % | 5.26 % / 6.31 % | 0.19 % / 1.47 % | 0.00 % | n/a | — | — |
+| 600 | 0.1 | 0.1 | A | 3.92 % | 2.67 % | 1.42 % / 3.74 % | 2.96 % / 3.27 % | 15.14 % | 0.01 | — | — |
+| 600 | 0.1 | 0.1 | B | 3.80 % | 6.00 % | 4.40 % / 7.79 % | 0.57 % / 2.73 % | 14.80 % | 0.04 | 5.08 % | 1.51 % / 2.95 % |
+| 600 | 0.1 | 0.1 | C | 2.44 % | 4.46 % | 10.77 % / 12.02 % | 1.41 % / 2.32 % | 14.69 % | 0.05 | — | — |
+| 600 | 0.3 | 0.3 | A | 8.35 % | 4.64 % | 3.20 % / 6.59 % | 5.96 % / 6.26 % | 45.41 % | 0.01 | — | — |
+| 600 | 0.3 | 0.3 | B | 4.21 % | 6.42 % | 4.68 % / 8.37 % | 0.56 % / 2.94 % | 44.40 % | 0.04 | 5.67 % | 1.54 % / 3.13 % |
+| 600 | 0.3 | 0.3 | C | 4.01 % | 7.49 % | 20.20 % / 22.90 % | 3.83 % / 4.79 % | 44.35 % | 0.03 | — | — |
+| 600 | 0.0 | 0.3 | A | 5.12 % | 5.18 % | 11.13 % / 13.43 % | 0.67 % / 1.68 % | 15.13 % | 0.62 | — | — |
+| 600 | 0.0 | 0.3 | B | 3.93 % | 5.90 % | 4.65 % / 7.90 % | 0.57 % / 2.78 % | 14.85 % | 0.60 | 5.14 % | 1.54 % / 3.13 % |
+| 600 | 0.0 | 0.3 | C | 3.75 % | 7.78 % | 22.63 % / 24.98 % | 4.13 % / 4.96 % | 14.72 % | 0.62 | — | — |
+
+### Variant C (stretch): can the anchor alone separate an additive term c from the gain y?
+
+State [y, d], d = y·c/ρ_s (ρ_s = median ρ_meas over the first arc), measurement z_inv = y − d·q_k with q_k = ρ_s·∫w dt / I_gauge,k. c is observable only through the arc-to-arc spread of q_k (the kernel-weighted mean measured density), i.e. the daily m(t) term and the storm. True c = arc mean of ∫b w dt / ∫w dt.
+
+| h (km) | β0 | β1 | final corr(y, c) | median corr, 2nd half | ĉ/ρ_ref final | true c/ρ_ref (arc mean) | σ(ĉ)/ρ_ref final | arc-to-arc spread of q_k |
+|---|---|---|---|---|---|---|---|---|
+| 400 | 0.0 | 0.0 | 0.962 | 0.955 | -0.034 | 0.000 | 0.029 | 12.36 % |
+| 400 | 0.1 | 0.1 | 0.965 | 0.958 | 0.129 | 0.161 | 0.034 | 11.50 % |
+| 400 | 0.3 | 0.3 | 0.969 | 0.962 | 0.454 | 0.483 | 0.043 | 10.14 % |
+| 400 | 0.0 | 0.3 | 0.964 | 0.958 | 0.153 | 0.183 | 0.034 | 11.39 % |
+| 600 | 0.0 | 0.0 | 0.960 | 0.962 | 0.010 | 0.000 | 0.129 | 12.48 % |
+| 600 | 0.1 | 0.1 | 0.964 | 0.966 | 0.164 | 0.163 | 0.154 | 11.60 % |
+| 600 | 0.3 | 0.3 | 0.970 | 0.971 | 0.474 | 0.490 | 0.209 | 10.20 % |
+| 600 | 0.0 | 0.3 | 0.965 | 0.966 | 0.191 | 0.190 | 0.159 | 11.46 % |
+
+### Pre-registered expectations (round-3 spec §6)
+
+| # | Expectation | Measured | Verdict |
+|---|---|---|---|
+| R3-1A | (0, 0), variant A: identical to round 2 to 4 decimals (in %) | 400 km: acc 0.0384 % vs 0.0384 %, prec 1.1316 % vs 1.1316 % (abs Δ 0.0000 / 0.0000 pp), conv 0.0644 vs 0.0644 d; 600 km: acc 1.5030 % vs 1.5030 %, prec 2.8910 % vs 2.8910 % (abs Δ 0.0000 / 0.0000 pp), conv 0.4700 vs 0.4700 d | PASS |
+| R3-1B | (0, 0), variant B: within 0.01 pp of round 2 (only the skipped 1 s samples differ) | 400 km: acc 0.0391 % vs 0.0384 %, prec 1.1384 % vs 1.1316 % (abs Δ 0.0008 / 0.0068 pp), conv 0.0644 vs 0.0644 d; with noise-free zero-reads: abs Δ 0.0000 / 0.0005 pp; 600 km: acc 1.5329 % vs 1.5030 %, prec 4.8807 % vs 2.8910 % (abs Δ 0.0299 / 1.9897 pp), conv 0.4700 vs 0.4700 d; with noise-free zero-reads: abs Δ 0.0001 / 0.0004 pp | FAIL |
+| R3-2 | A at (0.1, 0.1), 400 km: accuracy 2–8 %, precision PASS, offset_corr > 0.5 | accuracy 0.33 % (days 7–14, no conv.), precision 3.53 %, offset_corr 0.96 | FAIL |
+| R3-3 | A at (0.3, 0.3), 400 km: precision > 10 % or accuracy > 10 %, and the error is largest where ρ_true is smallest | precision 7.49 %, accuracy 0.86 % (benchmark breached: no); RMS error lowest-ρ quartile 8.88 % vs highest-ρ quartile 4.98 % | FAIL |
+| R3-4 | B at every (β0, β1), both altitudes: accuracy and precision within 1 pp of the (0, 0) no-offset cell (variant A at (0, 0), = round 2) | 400 km: max abs Δacc 0.01 pp, max abs Δprec 0.52 pp (worst (0.3, 0.3): prec 1.65 % vs 1.13 %); 600 km: max abs Δacc 0.07 pp, max abs Δprec 2.63 pp (worst (0.3, 0.3): prec 5.52 % vs 2.89 %) | FAIL |
+| R3-5 | 600 km variant A is worse than 400 km at the same β (worse = both accuracy and precision larger) | (0.1, 0.1): accuracy 0.64 %/0.33 % = ×1.92, precision 3.74 %/3.53 % = ×1.06; (0.3, 0.3): accuracy 1.29 %/0.86 % = ×1.49, precision 7.25 %/7.49 % = ×0.97; (0.0, 0.3): accuracy 2.27 %/0.62 % = ×3.63, precision 9.14 %/8.44 % = ×1.08. Eclipse fraction (ν = 0): 400 km 38.89 %, 600 km 36.55 % | FAIL |
+| C | (spec §3 purpose, not pre-registered in §6) the anchor alone cannot separate c from y (cannot = abs(final corr) ≥ 0.99 or σ(ĉ) ≥ true c, criterion set in DECISIONS.md) | 400 km (0.1, 0.1): corr 0.965, ĉ/ρ_ref 0.129 ± 0.034 vs true 0.161, accuracy 0.49 %, precision 4.02 %; 400 km (0.3, 0.3): corr 0.969, ĉ/ρ_ref 0.454 ± 0.043 vs true 0.483, accuracy 1.46 %, precision 10.64 %; 400 km (0.0, 0.3): corr 0.964, ĉ/ρ_ref 0.153 ± 0.034 vs true 0.183, accuracy 1.50 %, precision 10.68 %; 600 km (0.1, 0.1): corr 0.964, ĉ/ρ_ref 0.164 ± 0.154 vs true 0.163, accuracy 2.71 %, precision 6.75 %; 600 km (0.3, 0.3): corr 0.970, ĉ/ρ_ref 0.474 ± 0.209 vs true 0.490, accuracy 3.98 %, precision 13.74 %; 600 km (0.0, 0.3): corr 0.965, ĉ/ρ_ref 0.191 ± 0.159 vs true 0.190, accuracy 4.81 %, precision 14.50 % | FAIL |
+
+### Reading (every number generated from results/F6.json)
+
+- **A (no mitigation)**, β ≠ 0: worst accuracy 2.27 % (600 km, (0.0, 0.3)), worst precision 9.14 % (600 km, (0.0, 0.3)). The anchor still matches the drag-weighted arc integral, so the offset is absorbed into ŷ and shows up as within-orbit structure (precision, offset_corr) rather than as a mean bias. ŷ no longer equals 1/K_eff: 0/6 offset cells meet the 5 % convergence rule; final calibration-factor error ŷ·K_eff,true − 1: 400 km (0.1, 0.1) -11.12 %, 400 km (0.3, 0.3) -26.35 %, 400 km (0.0, 0.3) -12.41 %, 600 km (0.1, 0.1) -11.98 %, 600 km (0.3, 0.3) -27.13 %, 600 km (0.0, 0.3) -13.49 %.
+- **B (shutter zero-read)**, β ≠ 0: worst accuracy 1.57 % (600 km, (0.3, 0.3)), worst precision 5.52 % (600 km, (0.3, 0.3)). The single 1 s zero-read carries the gauge noise floor (1e-14 kg/m³ = 400 km 0.26 %, 600 km 5.37 % of ρ_ref), and b̂ holds that error for 300 s, so it does not average down in the 30 s bins. With noise-free zero-reads the largest precision change vs the no-offset cell is 400 km 0.35 pp, 600 km 0.24 pp (interpolation error of the lagged sunlit term only). B's offset_corr exceeds the baseline corr column (the correlation the no-offset product already has with the same b/ρ shape) by at most +0.02.
+- **C (2-state, no zero-reads)**, β ≠ 0: worst accuracy 4.81 % (600 km, (0.0, 0.3)), worst precision 14.50 % (600 km, (0.0, 0.3)). Final posterior corr(y, c) 0.964–0.970. ĉ tracks the arc-mean offset, but subtracting a per-arc constant leaves (b − c̄)/ρ_true, which is largest where ρ_true is smallest, so C's precision is worse than A's in every offset cell where both were run.

@@ -148,3 +148,43 @@ def test_run_cell_offset_metrics_plumbing_variant_B():
 def test_run_cell_rejects_unknown_variant():
     with pytest.raises(ValueError):
         scenarios.run_cell(400.0, "good", 0.0, beta=(0.1, 0.1), variant="Z", **KW1)
+
+
+# --- variant C (stretch): 2-state filter [y, d] with z_inv = y - d * q_k, no zero-reads --------------------------
+def test_run2_recovers_both_states_when_q_varies():
+    from clarity_anchor import filter as kf
+
+    tm = np.arange(1, 101) * 5400.0
+    q = 1.0 + 0.5 * np.sin(np.arange(100) / 3.0)  # regressor varies arc to arc -> both states observable
+    z = 0.8 - 0.2 * q
+    res = kf.run2(tm, z, q, R=1e-12, q_rel=0.0)
+    assert res.x[-1, 0] == pytest.approx(0.8, abs=1e-4)
+    assert res.x[-1, 1] == pytest.approx(0.2, abs=1e-4)
+    assert abs(res.corr[-1]) < 0.99
+
+
+def test_run2_constant_regressor_is_degenerate():
+    """[contract] With a constant regressor only y - d*q is observed: the posterior correlation goes to +1."""
+    from clarity_anchor import filter as kf
+
+    tm = np.arange(1, 101) * 5400.0
+    q = np.ones(100)
+    res = kf.run2(tm, 0.6 * np.ones(100), q, R=1e-6, q_rel=0.0)
+    assert res.corr[-1] > 0.99
+    assert res.x[-1, 0] - res.x[-1, 1] == pytest.approx(0.6, abs=1e-3)
+
+
+def test_run2_rejects_nonfinite_measurement():
+    """[contract] a NaN measurement would poison both states for the rest of the run."""
+    from clarity_anchor import filter as kf
+
+    with pytest.raises(ValueError):
+        kf.run2(np.array([1.0, 2.0]), np.array([1.0, np.nan]), np.array([1.0, 1.0]), R=1e-4)
+
+
+def test_run_cell_variant_C_plumbing():
+    c = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="C", **KW1)
+    for k in NEW_KEYS + ("c_post_corr_final", "c_hat_final_over_rho_ref"):
+        assert k in c, k
+    assert c["variant"] == "C"
+    assert -1.0 <= c["c_post_corr_final"] <= 1.0

@@ -219,6 +219,96 @@ def fig_f5():
     return out
 
 
+F6_ALTS = (400.0, 600.0)
+F6_BETAS = ((0.0, 0.0), (0.1, 0.1), (0.3, 0.3), (0.0, 0.3))
+F6_VARIANTS = ("A", "B", "C")
+
+
+def _f6_key(c):
+    return (c["h_km"], c["beta0"], c["beta1"], c["variant"])
+
+
+def fig_f6():
+    """Round 3: additive sun-correlated offset b(t) (docs/round3-offset-spec.md). 400/600 km, good POD, 1-orbit arcs,
+    eps_B = 0, gauge seed 10, four (beta0, beta1) pairs, variants A (no mitigation), B (shutter zero-read) and
+    C (stretch: 2-state [y, c] filter, no zero-reads)."""
+    from . import gauge
+
+    cells, diag_b0, series = [], [], {}
+    for h in F6_ALTS:
+        for beta in F6_BETAS:
+            for v in F6_VARIANTS:
+                keep = beta in ((0.0, 0.0), (0.3, 0.3))
+                c = scenarios.run_cell(h, "good", 0.0, 1, beta=beta, variant=v, keep_series=keep)
+                if keep:
+                    series[(h, beta, v)] = c.pop("series")
+                cells.append(c)
+                print(f"F6 cell h={h:.0f} beta={beta} {v}: acc={100*c['accuracy']:.2f} % prec={100*c['precision']:.2f} %", flush=True)
+            # diagnostic: B with noise-free zero-reads (attributes B's cost to the zero-read noise vs interpolation)
+            d = scenarios.run_cell(h, "good", 0.0, 1, beta=beta, variant="B", zero_noise=False)
+            diag_b0.append(d)
+    # diagnostic: correlation the NO-offset product already has with each b/rho shape (same window as the cell)
+    for c in cells:
+        s00 = series[(c["h_km"], (0.0, 0.0), "A")]
+        _, s_b = gauge.bin_mean(s00["t1"], s00["s1"], 30.0)
+        shape = c["rho_ref"] * (c["beta0"] + c["beta1"] * s_b) / s00["rho_b"]
+        post = s00["tb"] >= c["window_from_days"] * DAY
+        c["offset_corr_baseline"] = (float(np.corrcoef(s00["e_rho"][post], shape[post])[0, 1])
+                                     if np.std(shape[post]) > 0 else float("nan"))
+
+    sA, sB = series[(400.0, (0.3, 0.3), "A")], series[(400.0, (0.3, 0.3), "B")]
+    T_orb = scenarios.build_truth(400.0).T_orb
+    fig = plt.figure(figsize=(11, 11))
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.1, 1.0, 1.0])
+    ax = fig.add_subplot(gs[0, :])
+    t1 = sA["t1"]
+    w = (t1 >= 20 * T_orb) & (t1 < 24 * T_orb)
+    th = t1[w] / 3600.0
+    ax.plot(th, sA["meas1"][w], lw=0.3, color="0.6", label="ρ_meas = K g ρ + b + n (1 Hz)")
+    ax.plot(th, sA["rho1"][w], lw=1.0, color="C0", label="ρ_true")
+    ax.plot(th, sA["b1"][w], lw=1.2, color="C3", label="b(t) = ρ_ref(β0 + β1 s)")
+    ax.fill_between(th, 0, 1, where=sA["nu1"][w] > 0.5, transform=ax.get_xaxis_transform(), color="gold",
+                    alpha=0.15, lw=0, label="sunlit (ν = 1)")
+    ax.set_xlabel("time (h)")
+    ax.set_ylabel("kg/m³")
+    ax.set_title("F6 (a) · 400 km, (β0, β1) = (0.3, 0.3), orbits 20–23")
+    for ln in ax.legend(fontsize=8, loc="upper right", ncol=2).get_lines():
+        ln.set_linewidth(2.0)
+    ax = fig.add_subplot(gs[1, :])
+    td = sA["tb"] / DAY
+    w = (td >= 7.0) & (td < 9.0)
+    ax.plot(td[w], 100 * sA["e_rho"][w], lw=0.5, color="C3", label="A: no mitigation")
+    ax.plot(td[w], 100 * sB["e_rho"][w], lw=0.5, color="C2", label="B: shutter zero-read every 300 s")
+    ax.axhspan(-10, 10, color="0.9", zorder=0, label="±10 % (precision benchmark)")
+    ax.set_xlabel("time (days)")
+    ax.set_ylabel("ρ_cal/ρ_true − 1 (%, 30 s)")
+    ax.set_title("F6 (b) · 400 km, (0.3, 0.3): 30 s relative error, days 7–9 (inside both accuracy windows)")
+    for ln in ax.legend(fontsize=8, loc="upper right").get_lines():
+        ln.set_linewidth(2.0)
+    labels = [f"({b0:g}, {b1:g})" for b0, b1 in F6_BETAS]
+    by = {_f6_key(c): c for c in cells}
+    for j, (metric, lim, name) in enumerate((("accuracy", 20, "accuracy |mean| (%)"), ("precision", 10, "precision std (%)"))):
+        ax = fig.add_subplot(gs[2, j])
+        for h, ls in zip(F6_ALTS, ("-", "--")):
+            for v, col in zip(F6_VARIANTS, ("C3", "C2", "C0")):
+                y = [100 * by[(h, b0, b1, v)][metric] for b0, b1 in F6_BETAS]
+                ax.plot(range(len(F6_BETAS)), y, ls, marker="o", color=col, label=f"{v}, {h:.0f} km")
+        ax.axhline(lim, color="r", lw=0.8, label=f"benchmark {lim} %")
+        ax.set_xticks(range(len(F6_BETAS)), labels)
+        ax.set_xlabel("(β0, β1)")
+        ax.set_ylabel(name)
+        ax.set_title(f"F6 (c) · {metric} vs offset size (solid 400 km, dashed 600 km)", fontsize=10)
+        ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(RESULTS / "F6.png", dpi=130)
+    plt.close(fig)
+    RESULTS.mkdir(exist_ok=True)
+    out = {"cells": [_scalars(c) for c in cells],
+           "diagnostics": {"B_noiseless_zero_read": [_scalars(c) for c in diag_b0]}}
+    (RESULTS / "F6.json").write_text(json.dumps(out, indent=1, default=float))
+    return cells
+
+
 def decay_signal():
     rows = [metrics.decay_signal(scenarios.build_truth(h)) for h in ALTS]
     RESULTS.mkdir(exist_ok=True)
@@ -374,11 +464,219 @@ def write_summary():
         for c in cells or []:
             L.append(f"| {name} | {c['h_km']:.0f} | {c['grade']} | {c['n_orb']} | {c['n_arcs']} | {_pct(c['R_std'])} | "
                      f"{_pct(c['z_rel_noise_vs_truth'])} | {_pct(c.get('z_mean_bias'))} | {_pct(c['khat_final_err'])} | {_pct(c.get('ksig_final_rel'))} |")
+    L += _f6_section(f1)
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / "summary.md").write_text("\n".join(L) + "\n")
 
 
-FIGS = {"signal": decay_signal, "F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5}
+def _pct4(x):
+    return "n/a" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{100*x:.4f} %"
+
+
+def _num(x, fmt=".2f"):
+    return "n/a" if x is None or (isinstance(x, float) and math.isnan(x)) else format(x, fmt)
+
+
+def _f6_section(f1):
+    """Round 3 section (docs/round3-offset-spec.md §5-§6). Every number is read from results/F6.json (and F1.json
+    for the round-2 reference cells)."""
+    f6 = _load("F6")
+    L = ["", "## F6: additive sun-correlated offset (round 3, docs/round3-offset-spec.md)", ""]
+    if not f6:
+        return L + ["UNMEASURED (results/F6.json missing; run `python -m clarity_anchor.run --fig F6`)."]
+    cells = f6["cells"]
+    diag = {_f6_key(c): c for c in f6["diagnostics"]["B_noiseless_zero_read"]}
+    by = {_f6_key(c): c for c in cells}
+    variants = sorted({c["variant"] for c in cells})
+    L += ["Gauge truth ρ_meas = K g ρ_true + b(t) + n with b(t) = ρ_ref·(β0 + β1·s(t)), s the 300 s first-order lag of the "
+          "cylindrical-shadow sunlit indicator, ρ_ref the median ρ_true over day 0–1 at that altitude. Good POD, 1-orbit arcs, "
+          f"ε_B = 0, gauge seed {scenarios.GAUGE_SEED}. Variant A: round-2 estimator unchanged. Variant B: shutter zero-read every "
+          "300 s (1 s sample, own noise draw), b̂ linear between zero-reads, ρ_corr = ρ_meas − b̂ feeds the anchor and the 30 s "
+          "product (shutter seconds skipped). Variant C (stretch): no zero-reads, 2-state filter [y, c] with c a slowly "
+          "varying additive term in I_gauge. Accuracy/precision/convergence as in the main table; sunlit/eclipse split on "
+          "s > 0.5 / s < 0.5; offset_corr = Pearson(e_ρ, b/ρ_true) over the same window. The β sweep is relative to ρ_ref, "
+          "so one β is a different absolute pressure at each altitude.", "",
+          "| h (km) | β0 | β1 | variant | convergence | accuracy | precision | acc_sunlit | acc_eclipse | offset_corr | acc ≤20 % | prec ≤10 % |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for c in cells:
+        win = "after conv." if c["converged"] else "days 7–14, no conv."
+        L.append(f"| {c['h_km']:.0f} | {c['beta0']:.1f} | {c['beta1']:.1f} | {c['variant']} | {_days(c)} | "
+                 f"{_pct(c['accuracy'])} ({win}) | {_pct(c['precision'])} | {_pct(c['acc_sunlit'])} | {_pct(c['acc_eclipse'])} | "
+                 f"{_num(c['offset_corr'])} | {metrics.verdict(c['accuracy'], metrics.ACC_LIMIT)} | "
+                 f"{metrics.verdict(c['precision'], metrics.PREC_LIMIT)} |")
+    if "C" not in variants:
+        L.append("| 400, 600 | all | all | C | UNMEASURED (not run) | UNMEASURED (not run) | UNMEASURED (not run) | — | — | — | UNMEASURED | UNMEASURED |")
+    L += ["", "offset_corr is n/a at (0, 0) because b ≡ 0.", "",
+          "### F6 diagnostics", "",
+          "prec_sunlit/prec_eclipse: std of e_ρ in the sunlit/eclipse bins. Low/high ρ quartile: abs(mean) and RMS of e_ρ over the "
+          "bins with ρ_true in the lowest/highest quartile of the window. Baseline corr: Pearson correlation the NO-offset "
+          "product (variant A at (0, 0), same altitude and window) already has with this cell's b/ρ shape (orbital structure "
+          "of the round-2 error, e.g. the composition term, that is not offset leakage). B, noise-free zero-reads: the same B "
+          "cell with n_z = 0, which separates zero-read noise from interpolation error.", "",
+          "| h (km) | β0 | β1 | variant | prec_sunlit | prec_eclipse | low-ρ quartile: abs(mean) / RMS | high-ρ quartile: abs(mean) / RMS | mean b/ρ | baseline corr | b̂ error std (rel., B) | B noise-free zero-reads: acc / prec |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+
+    def rms(a, p):
+        return math.hypot(a, p)
+
+    for c in cells:
+        d = diag.get(_f6_key({**c, "variant": "B"})) if c["variant"] == "B" else None
+        L.append(f"| {c['h_km']:.0f} | {c['beta0']:.1f} | {c['beta1']:.1f} | {c['variant']} | {_pct(c['prec_sunlit'])} | "
+                 f"{_pct(c['prec_eclipse'])} | {_pct(c['acc_lowrho_q'])} / {_pct(rms(c['acc_lowrho_q'], c['prec_lowrho_q']))} | "
+                 f"{_pct(c['acc_highrho_q'])} / {_pct(rms(c['acc_highrho_q'], c['prec_highrho_q']))} | {_pct(c['b_over_rho_mean'])} | "
+                 f"{_num(c.get('offset_corr_baseline'))} | {_pct(c.get('bhat_err_rel_std')) if c['variant'] == 'B' else '—'} | "
+                 f"{(_pct(d['accuracy']) + ' / ' + _pct(d['precision'])) if d else '—'} |")
+    cc = [c for c in cells if c["variant"] == "C"]
+    L += ["", "### Variant C (stretch): can the anchor alone separate an additive term c from the gain y?", ""]
+    if cc:
+        L += ["State [y, d], d = y·c/ρ_s (ρ_s = median ρ_meas over the first arc), measurement z_inv = y − d·q_k with "
+              "q_k = ρ_s·∫w dt / I_gauge,k. c is observable only through the arc-to-arc spread of q_k (the kernel-weighted "
+              "mean measured density), i.e. the daily m(t) term and the storm. True c = arc mean of ∫b w dt / ∫w dt.", "",
+              "| h (km) | β0 | β1 | final corr(y, c) | median corr, 2nd half | ĉ/ρ_ref final | true c/ρ_ref (arc mean) | σ(ĉ)/ρ_ref final | arc-to-arc spread of q_k |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for c in cc:
+            L.append(f"| {c['h_km']:.0f} | {c['beta0']:.1f} | {c['beta1']:.1f} | {_num(c['c_post_corr_final'], '.3f')} | "
+                     f"{_num(c['c_post_corr_median_2nd_half'], '.3f')} | {_num(c['c_hat_final_over_rho_ref'], '.3f')} | "
+                     f"{_num(c['c_true_over_rho_ref_mean'], '.3f')} | {_num(c['c_sigma_final_over_rho_ref'], '.3f')} | "
+                     f"{_pct(c['q_reg_rel_std'])} |")
+    else:
+        L.append("UNMEASURED (not run).")
+
+    # ---- pre-registered expectations R3-1..R3-5 ----
+    L += ["", "### Pre-registered expectations (round-3 spec §6)", "", "| # | Expectation | Measured | Verdict |", "|---|---|---|---|"]
+    ref = {c["h_km"]: c for c in (f1 or []) if c["grade"] == "good" and c["n_orb"] == 1 and c["eps_B"] == 0.0}
+    alts = sorted({c["h_km"] for c in cells})
+    betas = [(c["beta0"], c["beta1"]) for c in cells if c["h_km"] == alts[0] and c["variant"] == "A"]
+    nz = [b for b in betas if b != (0.0, 0.0)]
+    # R3-1
+    for v, tol, label in (("A", 0.5e-6, "identical to round 2 to 4 decimals (in %)"),
+                          ("B", 1e-4, "within 0.01 pp of round 2 (only the skipped 1 s samples differ)")):
+        parts, ok, have = [], True, True
+        for h in alts:
+            c, r = by.get((h, 0.0, 0.0, v)), ref.get(h)
+            if c is None or r is None:
+                have = False
+                continue
+            da, dp = abs(c["accuracy"] - r["accuracy"]), abs(c["precision"] - r["precision"])
+            dconv = abs(c["conv_days"] - r["conv_days"]) if c["converged"] and r["converged"] else float("nan")
+            ok &= da < tol and dp < tol and (dconv < 1e-4 if v == "A" else True)
+            s_ = (f"{h:.0f} km: acc {_pct4(c['accuracy'])} vs {_pct4(r['accuracy'])}, prec {_pct4(c['precision'])} vs "
+                  f"{_pct4(r['precision'])} (abs Δ {100*da:.4f} / {100*dp:.4f} pp), conv {c['conv_days']:.4f} vs {r['conv_days']:.4f} d")
+            if v == "B" and (h, 0.0, 0.0, "B") in diag:
+                d = diag[(h, 0.0, 0.0, "B")]
+                s_ += (f"; with noise-free zero-reads: abs Δ {100*abs(d['accuracy'] - r['accuracy']):.4f} / "
+                       f"{100*abs(d['precision'] - r['precision']):.4f} pp")
+            parts.append(s_)
+        L.append(f"| R3-1{v} | (0, 0), variant {v}: {label} | {'; '.join(parts) or '—'} | "
+                 f"{('PASS' if ok else 'FAIL') if have else 'UNMEASURED'} |")
+    # R3-2
+    c = by.get((400.0, 0.1, 0.1, "A"))
+    if c:
+        ok = 0.02 <= c["accuracy"] <= 0.08 and c["precision"] <= metrics.PREC_LIMIT and c["offset_corr"] > 0.5
+        L.append(f"| R3-2 | A at (0.1, 0.1), 400 km: accuracy 2–8 %, precision PASS, offset_corr > 0.5 | accuracy "
+                 f"{_pct(c['accuracy'])} ({'after conv.' if c['converged'] else 'days 7–14, no conv.'}), precision "
+                 f"{_pct(c['precision'])}, offset_corr {_num(c['offset_corr'])} | {'PASS' if ok else 'FAIL'} |")
+    else:
+        L.append("| R3-2 | A at (0.1, 0.1), 400 km | — | UNMEASURED |")
+    # R3-3
+    c = by.get((400.0, 0.3, 0.3, "A"))
+    if c:
+        fails = c["precision"] > metrics.PREC_LIMIT or c["accuracy"] > 0.10
+        lo, hi = rms(c["acc_lowrho_q"], c["prec_lowrho_q"]), rms(c["acc_highrho_q"], c["prec_highrho_q"])
+        ok = fails and lo > hi
+        L.append(f"| R3-3 | A at (0.3, 0.3), 400 km: precision > 10 % or accuracy > 10 %, and the error is largest where ρ_true "
+                 f"is smallest | precision {_pct(c['precision'])}, accuracy {_pct(c['accuracy'])} (benchmark breached: "
+                 f"{'yes' if fails else 'no'}); RMS error lowest-ρ quartile {_pct(lo)} vs highest-ρ quartile {_pct(hi)} | "
+                 f"{'PASS' if ok else 'FAIL'} |")
+    else:
+        L.append("| R3-3 | A at (0.3, 0.3), 400 km | — | UNMEASURED |")
+    # R3-4
+    bc = [c for c in cells if c["variant"] == "B"]
+    if bc and all(h in ref for h in alts):
+        parts, ok = [], True
+        for h in alts:
+            base = by[(h, 0.0, 0.0, "A")]
+            da = max(abs(c["accuracy"] - base["accuracy"]) for c in bc if c["h_km"] == h)
+            dp = max(abs(c["precision"] - base["precision"]) for c in bc if c["h_km"] == h)
+            ok &= da <= 0.01 and dp <= 0.01
+            worst = max((c for c in bc if c["h_km"] == h), key=lambda c: abs(c["precision"] - base["precision"]))
+            parts.append(f"{h:.0f} km: max abs Δacc {100*da:.2f} pp, max abs Δprec {100*dp:.2f} pp (worst ({worst['beta0']:.1f}, "
+                         f"{worst['beta1']:.1f}): prec {_pct(worst['precision'])} vs {_pct(base['precision'])})")
+        L.append(f"| R3-4 | B at every (β0, β1), both altitudes: accuracy and precision within 1 pp of the (0, 0) no-offset "
+                 f"cell (variant A at (0, 0), = round 2) | {'; '.join(parts)} | {'PASS' if ok else 'FAIL'} |")
+    else:
+        L.append("| R3-4 | B within 1 pp of (0, 0) | — | UNMEASURED |")
+    # R3-5
+    if len(alts) == 2 and nz:
+        lo_h, hi_h = alts
+        parts, ok = [], True
+        for b0, b1 in nz:
+            a4, a6 = by[(lo_h, b0, b1, "A")], by[(hi_h, b0, b1, "A")]
+            ra, rp = a6["accuracy"] / a4["accuracy"], a6["precision"] / a4["precision"]
+            ok &= ra > 1 and rp > 1
+            parts.append(f"({b0:.1f}, {b1:.1f}): accuracy {_pct(a6['accuracy'])}/{_pct(a4['accuracy'])} = ×{ra:.2f}, "
+                         f"precision {_pct(a6['precision'])}/{_pct(a4['precision'])} = ×{rp:.2f}")
+        ecl = ", ".join(f"{h:.0f} km {_pct(1 - by[(h, 0.0, 0.0, 'A')]['sunlit_frac'])}" for h in alts)
+        L.append(f"| R3-5 | 600 km variant A is worse than 400 km at the same β (worse = both accuracy and precision larger) | "
+                 f"{'; '.join(parts)}. Eclipse fraction (ν = 0): {ecl} | {'PASS' if ok else 'FAIL'} |")
+    else:
+        L.append("| R3-5 | 600 km A worse than 400 km | — | UNMEASURED |")
+    # C purpose statement (spec §3, not numbered in §6)
+    if cc:
+        ok_sep = all(abs(c["c_post_corr_final"]) >= 0.99 or c["c_sigma_final_over_rho_ref"] >= c["c_true_over_rho_ref_mean"]
+                     for c in cc if (c["beta0"], c["beta1"]) != (0.0, 0.0))
+        parts = [f"{c['h_km']:.0f} km ({c['beta0']:.1f}, {c['beta1']:.1f}): corr {c['c_post_corr_final']:.3f}, ĉ/ρ_ref "
+                 f"{c['c_hat_final_over_rho_ref']:.3f} ± {c['c_sigma_final_over_rho_ref']:.3f} vs true {c['c_true_over_rho_ref_mean']:.3f}, "
+                 f"accuracy {_pct(c['accuracy'])}, precision {_pct(c['precision'])}"
+                 for c in cc if (c["beta0"], c["beta1"]) != (0.0, 0.0)]
+        L.append(f"| C | (spec §3 purpose, not pre-registered in §6) the anchor alone cannot separate c from y (cannot = "
+                 f"abs(final corr) ≥ 0.99 or σ(ĉ) ≥ true c, criterion set in DECISIONS.md) | {'; '.join(parts)} | "
+                 f"{'PASS' if ok_sep else 'FAIL'} |")
+    else:
+        L.append("| C | anchor alone cannot separate c from y | not run | UNMEASURED (not run) |")
+    L += ["", "### Reading (every number generated from results/F6.json)", ""]
+    from .gauge import NOISE_FLOOR
+
+    for v in ("A", "B", "C"):
+        vc = [c for c in cells if c["variant"] == v and (c["beta0"], c["beta1"]) != (0.0, 0.0)]
+        if not vc:
+            continue
+        acc_max = max(vc, key=lambda c: c["accuracy"])
+        prec_max = max(vc, key=lambda c: c["precision"])
+        head = (f"worst accuracy {_pct(acc_max['accuracy'])} ({acc_max['h_km']:.0f} km, ({acc_max['beta0']:.1f}, {acc_max['beta1']:.1f})), "
+                f"worst precision {_pct(prec_max['precision'])} ({prec_max['h_km']:.0f} km, ({prec_max['beta0']:.1f}, {prec_max['beta1']:.1f}))")
+        if v == "A":
+            nconv = sum(c["converged"] for c in vc)
+            kerr = ", ".join(f"{c['h_km']:.0f} km ({c['beta0']:.1f}, {c['beta1']:.1f}) {_pct(c['khat_final_err'])}" for c in vc)
+            L.append(f"- **A (no mitigation)**, β ≠ 0: {head}. The anchor still matches the drag-weighted arc integral, so the "
+                     f"offset is absorbed into ŷ and shows up as within-orbit structure (precision, offset_corr) rather than as a "
+                     f"mean bias. ŷ no longer equals 1/K_eff: {nconv}/{len(vc)} offset cells meet the 5 % convergence rule; final "
+                     f"calibration-factor error ŷ·K_eff,true − 1: {kerr}.")
+        elif v == "B":
+            fl = ", ".join(f"{h:.0f} km {_pct(NOISE_FLOOR / by[(h, 0.0, 0.0, 'A')]['rho_ref'])}" for h in alts)
+            dz = ", ".join(f"{h:.0f} km {100*max(abs(diag[_f6_key(c)]['precision'] - by[(h, 0.0, 0.0, 'A')]['precision']) for c in bc if c['h_km'] == h):.2f} pp"
+                           for h in alts)
+            excess = max(c["offset_corr"] - c["offset_corr_baseline"] for c in vc)
+            L.append(f"- **B (shutter zero-read)**, β ≠ 0: {head}. The single 1 s zero-read carries the gauge noise floor "
+                     f"({NOISE_FLOOR:g} kg/m³ = {fl} of ρ_ref), and b̂ holds that error for 300 s, so it does not average down "
+                     f"in the 30 s bins. With noise-free zero-reads the largest precision change vs the no-offset cell is {dz} "
+                     f"(interpolation error of the lagged sunlit term only). B's offset_corr exceeds the baseline corr column "
+                     f"(the correlation the no-offset product already has with the same b/ρ shape) by at most {excess:+.2f}.")
+        else:
+            cr = [c["c_post_corr_final"] for c in vc]
+            L.append(f"- **C (2-state, no zero-reads)**, β ≠ 0: {head}. Final posterior corr(y, c) {min(cr):.3f}–{max(cr):.3f}. "
+                     f"ĉ tracks the arc-mean offset, but subtracting a per-arc constant leaves (b − c̄)/ρ_true, which is largest "
+                     f"where ρ_true is smallest, so C's precision is worse than A's in every offset cell where both were run.")
+    worse = all(by[(c["h_km"], c["beta0"], c["beta1"], "C")]["precision"] > c["precision"]
+                for c in cells if c["variant"] == "A" and (c["beta0"], c["beta1"]) != (0.0, 0.0)
+                and (c["h_km"], c["beta0"], c["beta1"], "C") in by)
+    if cc and not worse:
+        L[-1] = L[-1].replace(", so C's precision is worse than A's in every offset cell where both were run.",
+                              "; C's precision is NOT worse than A's in every offset cell (see table).")
+    return L
+
+
+FIGS = {"signal": decay_signal, "F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5, "F6": fig_f6}
 
 
 def main(argv=None):

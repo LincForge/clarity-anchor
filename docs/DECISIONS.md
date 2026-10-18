@@ -147,3 +147,93 @@ Choices made where `docs/sim-spec.md` is silent, plus every deviation from it.
 - Attitude-control and thruster accelerations (including unloading and leaks; manoeuvre arcs are excluded by assumption).
 - Time-correlated POD errors (all POD noise here is white per 10 s epoch).
 - Gauge response time (the 1 Hz gauge responds instantly to ρ).
+
+## Round 3 (2026-10-18): additive sun-correlated offset and the shutter zero-read (docs/round3-offset-spec.md)
+Choices the round-3 spec left open, plus every deviation from it. All numbers are in `results/F6.json` and
+`results/summary.md` (F6 section); none are repeated here.
+
+**Truth.**
+- ν(t) is `orbit.shadow_nu` (the same cylindrical shadow as the SRP truth) evaluated along the 1 Hz truth orbit
+  (cubic Hermite of the 5 s states) with the almanac Sun direction.
+- s(t) is the exact zero-order-hold discretisation of the first-order lag at 1 Hz, s[k] = a s[k−1] + (1 − a) ν[k],
+  a = exp(−1 s/τ_b), τ_b = 300 s (assumption, as the spec says). Initial condition s(0) = ν(0): the wall starts in
+  equilibrium with the illumination it has at t = 0 (it settles within one orbit, well before any accuracy window).
+- ρ_ref = median of the 1 Hz ρ_true along the truth orbit over t < 1 day, so it includes the m(t) model-error field
+  (the day-5 storm is outside it). Stored per cell as `rho_ref`.
+- **Relative sweep, absolute physics.** The physical offset is an absolute chamber pressure, so the same outgassing
+  is a larger fraction of the signal at higher altitude. The sweep is relative to ρ_ref, so one (β0, β1) maps to a
+  different absolute pressure at 400 and 600 km; F6 does not say which β a real gauge sits at, at either altitude.
+- The gauge noise n is unchanged, σ = 0.02·ρ_true + floor (it does not grow with b). A real gauge's noise would scale
+  with the total chamber pressure, including b, so A's precision damage is if anything slightly understated.
+- Guard: `gauge.offset` raises ValueError when β0 or β1 is non-finite or negative, when ρ_ref is non-finite or ≤ 0,
+  and also when s(t) contains a non-finite value (a NaN would otherwise propagate silently into every sample).
+- With b ≡ 0 the gauge adds 0.0 before the unchanged noise draw, so (0, 0) reproduces the round-2 numbers bit for bit
+  (regression test `test_run_cell_offset_zero_reproduces_round2_cell`, and R3-1A on the 14-day cells).
+
+**Variant B (shutter zero-read).**
+- Zero-reads at t = 300 s, 600 s, … (none at t = 0, so "hold before the first" applies to the first 300 s);
+  `np.interp` also holds b̂ after the last zero-read.
+- Zero-read noise n_z comes from its own random stream (seed 31, `scenarios.ZR_SEED`), so the gauge noise draws of
+  every other sample are identical to variant A on the same cell.
+- The shutter second is not a density sample. The 30 s product leaves it out (29-sample bin mean, bin time stamp
+  unchanged). The anchor's 1 Hz Simpson integral needs every sample, so ρ_corr at a shutter second is filled by linear
+  interpolation of its neighbours. The truth reference bin ρ_true stays the full 30-sample mean: the product is meant
+  to estimate the 30 s mean density, so the skipped sample is a real cost, not re-referenced away.
+- b̂ is linear between zero-reads, so it uses the NEXT zero-read: the B product has up to 300 s of latency, unlike the
+  causal ŷ. This is the spec's estimator; a causal (hold-last) b̂ was not run.
+- R (the filter's measurement variance) is the round-2 Monte Carlo, unchanged and computed without the offset or the
+  zero-reads, for A, B and C alike: the spec keeps the round-2 estimator, and R is dominated by POD noise.
+- Diagnostic (not in the spec): every B cell is rerun with noise-free zero-reads (`zero_noise=False`), stored under
+  `diagnostics.B_noiseless_zero_read` in F6.json, to separate the zero-read noise from the interpolation error of the
+  lagged sunlit term.
+
+**Variant C (stretch, run).** The spec's measurement I_gauge = (1/y)·I_true + c·∫w dt is nonlinear in [y, c]. It is
+reparametrised linearly: d = y·c/ρ_s, z_inv = I_pod/I_gauge = y − d·q_k, q_k = ρ_s·W_k/I_gauge,k, W_k = ∫w dt over the
+arc (from the POD kinematics, `anchor.compute` now also returns it as `W_kernel`), ρ_s = median 1 Hz ρ_meas over the
+first arc (a scale the estimator knows). Prior d0 = 0, P_d0 = 0.3²; process noise on y as in round 2, on d an absolute
+random walk with the same rate (0.03²/week). ε_B = 0, so I_pod = I_true. Product ρ_cal = ŷ·ρ_meas − d̂·ρ_s (causal).
+True c per arc = ∫b w dt / ∫w dt. c is not a free per-arc term (that would be unobservable by construction); it is a
+slowly varying state, so the test is whether arc-to-arc variation in the measured density separates it from y.
+
+**Metrics.** Sunlit/eclipse split on the 30 s bin mean of s (> 0.5 / < 0.5). offset_corr = Pearson(e_ρ, b_30s/ρ_true,30s)
+over the accuracy window; n/a at (0, 0) because b ≡ 0. Added (not in the spec): low/high-ρ_true quartile error (for
+R3-3), mean b/ρ_true, eclipse fraction, b̂ error (B), and "baseline corr" = the correlation the no-offset product
+(A at (0, 0), same altitude and window) already has with the same b/ρ shape. That column exists because the round-2
+error has orbital structure of its own (composition term), so a non-zero offset_corr in B is not by itself leakage.
+Convergence is unchanged (ŷ·K_eff,true − 1 inside 5 %); A cells with an offset never meet it because ŷ absorbs the
+offset, so their accuracy window is days 7–14 by the main-spec rule. mc_draws stays 200 for F6 (24 cells take ~35 s).
+F6(b) shows days 7–9, inside the accuracy window of both A (days 7–14) and B (after convergence).
+
+**Verdict definitions (spec §6 wording left these open).**
+- R3-1A "identical to 4 decimals": accuracy and precision equal when printed in % to 4 decimals, and convergence time
+  equal to 1e-4 d. R3-1B: accuracy and precision within 0.01 pp of round 2.
+- R3-2: all three of accuracy in [2 %, 8 %], precision ≤ 10 %, offset_corr > 0.5.
+- R3-3: (precision > 10 % or accuracy > 10 %) AND "error largest where ρ_true is smallest" = RMS error over the
+  lowest-ρ_true quartile of bins larger than over the highest quartile. Both parts are reported.
+- R3-4: reference is variant A at (0, 0) at the same altitude (= the round-2 cell, the §1 "no-offset baseline");
+  every B cell, (0, 0) included, must be within 1 pp on both accuracy and precision.
+- R3-5: "worse" = both accuracy and precision larger at 600 km for every β ≠ (0, 0); both ratios are reported.
+- C (not numbered in §6): "cannot separate" = |final posterior corr(y, c)| ≥ 0.99 or final σ(ĉ) ≥ true c.
+- **Disclosure:** the R3-3 and R3-5 operational definitions and the C criterion were written after a diagnostic run of
+  the (0, 0) and (0.3, 0.3) cells at both altitudes had been seen. The thresholds themselves (10 %, 1 pp, 0.5, 2–8 %)
+  are the spec's.
+
+**Tests.** The "ρ_corr with noise=False equals K g ρ exactly" test uses an offset that is piecewise linear between
+zero-reads (a constant floor, and a linear ramp checked between the first and last zero-read), because linear
+interpolation reproduces the lagged sunlit term only at the zero-read instants. Plumbing tests on 1-day runs check
+structure and robust inequalities, not the 14-day physics numbers.
+
+## Round 3 findings flagged for the reviewer
+- The anchor does NOT leave a mean bias from the offset: it calibrates the drag-weighted arc integral, so the offset is
+  absorbed into ŷ and appears as within-orbit error (precision) and a calibration factor far from 1/K_eff. R3-2 and
+  R3-3 pre-registered an accuracy hit; the measured damage is in precision.
+- B at 600 km does not recover the baseline: a single 1 s zero-read carries the gauge noise floor, which is a few
+  percent of ρ at 600 km, and b̂ holds that error for 300 s. With noise-free zero-reads B recovers both altitudes.
+  Averaging several shutter seconds per zero-read is the obvious mitigation; it was NOT run, so no claim.
+- C separates c from y better than the spec expected (posterior corr high but clearly below 1; ĉ within about one posterior σ of the
+  truth), because the storm and the daily m(t) term vary the arc-mean density. It still does not help the product:
+  removing a per-arc constant leaves (b − c̄)/ρ_true, so C's precision is worse than A's.
+
+## Round 3 open questions
+- None blocking. Untested: zero-read averaging (N shutter seconds per read), a causal b̂, and noise that scales with
+  total chamber pressure.

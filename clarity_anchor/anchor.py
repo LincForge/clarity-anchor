@@ -72,6 +72,7 @@ def compute(t1, rho_meas1, tp, rp, vp, arc_len_s, B_model, cr_model, j2=orbit.J2
         "I_gauge": I_gauge,
         "z": I_gauge / I_pod,  # round-1 ratio (POD noise in the denominator -> biased by ~sigma^2)
         "z_inv": I_pod / I_gauge,  # round-2 measurement of y = 1/K_eff (POD noise in the numerator)
+        "W_kernel": simpson(w[idx], dx=dt1, axis=1),  # round 3 (variant C): ∫w dt, the regressor of an additive term
     }
 
 

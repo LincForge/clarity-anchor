@@ -38,7 +38,8 @@ precision ≤ 10 %, resolution ≤ 30 s.
 
 Additional figures: [`results/F3.png`](results/F3.png) (accuracy vs ballistic-coefficient error),
 [`results/F4.png`](results/F4.png) (convergence grid across altitudes, POD grades, and arc lengths),
-[`results/F5.png`](results/F5.png) (fleet averaging across $N$ hosts).
+[`results/F5.png`](results/F5.png) (fleet averaging across $N$ hosts),
+[`results/F6.png`](results/F6.png) (round 3: additive sun-correlated gauge offset, with and without a shutter zero-read).
 
 ## What this does NOT show
 
@@ -53,6 +54,8 @@ Additional figures: [`results/F3.png`](results/F3.png) (accuracy vs ballistic-co
   - Attitude-control and thruster accelerations (manoeuvre arcs are excluded by assumption).
   - Time-correlated POD errors (all POD noise here is white per 10 s epoch).
   - Gauge response time (the 1 Hz gauge responds instantly).
+  - Additive chamber background: modeled in round 3 (F6) as a constant plus a sunlit term, sizes assumed,
+    see [`docs/round3-offset-spec.md`](docs/round3-offset-spec.md).
 - Composition sensitivity is modeled only through a fixed per-species gauge factor; the chamber
   gas dynamics are not simulated.
 
@@ -65,7 +68,7 @@ Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Runs fully offline.
 
 ```bash
 uv sync
-uv run pytest                                  # 32 tests, including analytic checks
+uv run pytest                                  # 56 tests, including analytic checks
 uv run python -m clarity_anchor.run --fig all  # regenerates results/ (~6-8 min)
 ```
 
