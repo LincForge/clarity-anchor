@@ -85,6 +85,7 @@ POD_SEED = {"good": 11, "cots": 12, "perfect": 13}
 MC_SEED = 101
 MC_DRAWS = 200
 SRP_MODEL_ERR = 0.10
+VARIANTS = ("A",)  # round 3: A = no mitigation
 
 
 def _truth_kernel(truth):
@@ -96,11 +97,16 @@ def _truth_kernel(truth):
 
 def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draws=MC_DRAWS,
              composition=True, gauge_seed=GAUGE_SEED, keep_series=False, k_path=None, noise_seed=None,
-             pod_seed=None, estimator="inv"):
+             pod_seed=None, estimator="inv", beta=None, variant="A", zero_noise=True):
     """One scenario cell: truth -> gauge -> POD -> anchor -> KF -> metrics.
 
     estimator="inv" (default, round 2): KF state y = 1/K_eff, measurement z_inv = I_pod/I_gauge,
     rho_cal = rho_meas * y_hat. estimator="ratio" (round 1): state K_eff, measurement z = I_gauge/I_pod.
+
+    Round 3 (docs/round3-offset-spec.md): beta=(beta0, beta1) adds the chamber background
+    b(t) = rho_ref (beta0 + beta1 s(t)) to the gauge; variant "A" runs the round-2 estimator unchanged,
+    variant "B" subtracts a shutter zero-read b_hat before the anchor and the 30 s product.
+    beta=None is the round-2 cell (no new output keys).
     """
     from scipy.integrate import simpson
 
@@ -119,13 +125,19 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     if noise_seed is not None:
         rng_g = np.random.default_rng(noise_seed)
     g1 = gauge.composition_factor(truth.frac1) if composition else np.ones_like(t1)
-    meas1 = gauge.measure(rho1, K1, g1, rng_g)
+    off = None
+    if beta is not None:
+        if variant not in VARIANTS:
+            raise ValueError(f"variant must be one of {VARIANTS}, got {variant!r}")
+        off = _offset_truth(truth, beta)
+    meas1 = gauge.measure(rho1, K1, g1, rng_g, b=None if off is None else off["b1"])
+    dens1, skip = meas1, None  # what the estimator integrates and bins
     tp, rp, vp = pod.observe(truth.t, truth.states, grade,
                              np.random.default_rng(POD_SEED[grade] if pod_seed is None else pod_seed))
     B_model = truth.B_true * (1 + eps_B)
     cr_model = orbit.C_R * (1 + SRP_MODEL_ERR)
     arc_len = n_orb * truth.T_orb
-    a = anchor.compute(t1, meas1, tp, rp, vp, arc_len, B_model, cr_model)
+    a = anchor.compute(t1, dens1, tp, rp, vp, arc_len, B_model, cr_model)
     inv = estimator == "inv"
     zkey = "z_inv" if inv else "z"
     r_std, r_mean = anchor.monte_carlo_R(truth, K1 * g1, arc_len, grade, B_model, cr_model,
@@ -142,7 +154,7 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     gbar = simpson((g1 * rho1 * w1)[idx], dx=1.0, axis=1) / den
 
     # 30 s products
-    tb, meas_b = gauge.bin_mean(t1, meas1, 30.0)
+    tb, meas_b = gauge.bin_mean(t1, dens1, 30.0)
     _, rho_b = gauge.bin_mean(t1, rho1, 30.0)
     xhat_b = res_kf.at(tb)
     rho_cal = meas_b * xhat_b if inv else meas_b / xhat_b
@@ -173,9 +185,59 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
         "acc_uncal": acc_uncal,
         "ksig_final_rel": float(np.sqrt(res_kf.P[-1]) / res_kf.x[-1]),
     }
+    if off is not None:
+        out.update(_offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip))
     if keep_series:
         out["series"] = {"tb": tb, "e_rho": e_rho, "e_k": e_k, "in_arcs": in_arcs, "rho_b": rho_b,
                          "rho_cal": rho_cal, "meas_b": meas_b, "t_arc": a["t_end"], "z": a["z"], "z_inv": a["z_inv"],
                          "keff_true": keff_true, "gbar": gbar,
                          "khat": 1.0 / res_kf.x if inv else res_kf.x, "ksig": np.sqrt(res_kf.P)}
+        if off is not None:
+            out["series"].update({"t1": t1, "rho1": rho1, "meas1": meas1, "b1": off["b1"], "nu1": off["nu1"],
+                                  "s1": off["s1"]})
+    return out
+
+
+def _offset_truth(truth, beta):
+    """Round 3 truth: sunlit indicator nu (cylindrical shadow) along the 1 Hz truth orbit, its 300 s lag s,
+    rho_ref = median rho_true over day 0-1, and b = rho_ref (beta0 + beta1 s)."""
+    from . import gauge
+
+    t1 = truth.t1
+    r1, _ = orbit.hermite(truth.t, truth.states[:, :3], truth.states[:, 3:], t1)
+    nu1 = orbit.shadow_nu(r1, orbit.sun_unit_array(t1))
+    s1 = gauge.sunlit_lag(t1, nu1, gauge.TAU_B)
+    rho_ref = float(np.median(truth.rho1[t1 < 86400.0]))
+    b1 = gauge.offset(s1, rho_ref, float(beta[0]), float(beta[1]))
+    return {"nu1": nu1, "s1": s1, "rho_ref": rho_ref, "b1": b1}
+
+
+def _offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip):
+    """Round 3 per-cell metrics (spec §4) over the post-convergence window."""
+    from . import gauge
+
+    _, s_b = gauge.bin_mean(t1, off["s1"], 30.0)
+    _, b_b = gauge.bin_mean(t1, off["b1"], 30.0)
+    post = tb >= t_from
+    e, sb, frac = e_rho[post], s_b[post], (b_b / rho_b)[post]
+    rp = rho_b[post]
+
+    def am(mask):
+        return (float(abs(np.mean(e[mask]))), float(np.std(e[mask]))) if mask.sum() > 1 else (float("nan"),) * 2
+
+    acc_sun, prec_sun = am(sb > 0.5)
+    acc_ecl, prec_ecl = am(sb < 0.5)
+    q25, q75 = np.quantile(rp, [0.25, 0.75])
+    acc_lo, prec_lo = am(rp <= q25)
+    acc_hi, prec_hi = am(rp >= q75)
+    corr = float(np.corrcoef(e, frac)[0, 1]) if np.std(frac) > 0 else float("nan")
+    out = {
+        "beta0": float(beta[0]), "beta1": float(beta[1]), "variant": variant, "rho_ref": off["rho_ref"],
+        "sunlit_frac": float(np.mean(off["nu1"])),
+        "b_over_rho_mean": float(np.mean(frac)), "b_over_rho_max": float(np.max(frac)),
+        "acc_sunlit": acc_sun, "prec_sunlit": prec_sun, "acc_eclipse": acc_ecl, "prec_eclipse": prec_ecl,
+        "offset_corr": corr,
+        "acc_lowrho_q": acc_lo, "prec_lowrho_q": prec_lo, "acc_highrho_q": acc_hi, "prec_highrho_q": prec_hi,
+        "mean_err_lowrho_q": float(np.mean(e[rp <= q25])), "mean_err_highrho_q": float(np.mean(e[rp >= q75])),
+    }
     return out

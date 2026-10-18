@@ -92,7 +92,10 @@ def test_rho_corr_noiseless_equals_Kg_rho(beta1):
     meas = gauge.measure(rho, K, g, np.random.default_rng(0), noise=False, b=b)
     rho_corr, skip = gauge.subtract_zero_reads(t, meas, b, np.random.default_rng(1), noise=False)
     assert np.array_equal(skip, gauge.zero_read_mask(t, gauge.T_ZERO))
-    assert np.allclose(rho_corr[~skip], (K * g * rho)[~skip], rtol=1e-12, atol=0.0)
+    # b_hat is held before the first and after the last zero-read, so a ramp is exact only between them
+    inside = (t >= gauge.T_ZERO) & (t <= t[skip][-1]) if beta1 == "linear" else np.ones_like(t, bool)
+    m = inside & ~skip
+    assert np.allclose(rho_corr[m], (K * g * rho)[m], rtol=1e-12, atol=0.0)
 
 
 def test_bin_mean_skips_masked_samples():
@@ -114,17 +117,34 @@ def test_run_cell_offset_zero_reproduces_round2_cell():
         assert new[k] == old[k], k
 
 
-def test_run_cell_offset_metrics_plumbing():
-    """F6 plumbing: the new per-cell metrics exist and behave (A correlates with b/rho, B removes most of it)."""
-    kw = dict(n_orb=1, days=1.0, use_cache=False, mc_draws=20)
-    a = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="A", **kw)
-    b = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="B", **kw)
-    for c in (a, b):
-        for k in ("acc_sunlit", "acc_eclipse", "prec_sunlit", "prec_eclipse", "offset_corr", "beta0", "beta1",
-                  "variant", "rho_ref", "acc_lowrho_q", "acc_highrho_q"):
-            assert k in c, k
-        assert c["beta0"] == 0.3 and c["beta1"] == 0.3
-    assert a["variant"] == "A" and b["variant"] == "B"
-    assert a["offset_corr"] > 0.5
-    assert abs(b["offset_corr"]) < abs(a["offset_corr"])
+NEW_KEYS = ("acc_sunlit", "acc_eclipse", "prec_sunlit", "prec_eclipse", "offset_corr", "beta0", "beta1",
+            "variant", "rho_ref", "acc_lowrho_q", "acc_highrho_q")
+KW1 = dict(n_orb=1, days=1.0, use_cache=False, mc_draws=20)
+
+
+def test_run_cell_offset_metrics_plumbing_variant_A():
+    """F6 plumbing: the new per-cell metrics exist; with a (0.3, 0.3) offset, A's error correlates with b/rho."""
+    a = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="A", **KW1)
+    for k in NEW_KEYS:
+        assert k in a, k
+    assert a["variant"] == "A" and a["beta0"] == 0.3 and a["beta1"] == 0.3
+    assert a["offset_corr"] > 0.3  # error tracks b/rho (0.99 on the 14-day cell; 1-day window includes the transient)
+    assert 0.0 < a["b_over_rho_mean"] < 1.0
+
+
+def test_run_cell_offset_metrics_plumbing_variant_B():
+    """Variant B (shutter zero-read) removes most of the offset damage seen by A on the same cell."""
+    a = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="A", **KW1)
+    b = scenarios.run_cell(400.0, "good", 0.0, beta=(0.3, 0.3), variant="B", **KW1)
+    for k in NEW_KEYS:
+        assert k in b, k
+    assert b["variant"] == "B"
     assert b["precision"] < a["precision"]
+    assert b["accuracy"] < a["accuracy"]
+    assert b["bhat_err_rel_std"] < 0.03
+    assert b["skipped_frac"] == pytest.approx(1 / 300, rel=0.01)
+
+
+def test_run_cell_rejects_unknown_variant():
+    with pytest.raises(ValueError):
+        scenarios.run_cell(400.0, "good", 0.0, beta=(0.1, 0.1), variant="Z", **KW1)
