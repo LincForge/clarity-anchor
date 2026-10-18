@@ -25,9 +25,9 @@ precision ≤ 10 %, resolution ≤ 30 s.
 |---|---|
 | Calibration lock-in, 300–500 km, good POD, 1-orbit arcs | 0.06–0.07 d (one orbit), 10/10 gauge seeds |
 | Calibration lock-in, 600 km, good POD | 0.47 d (1-orbit arcs), 0.20 d (3-orbit arcs) |
-| Calibration lock-in, 600 km, COTS POD, 1-orbit arcs | marginal: median 2.18 d, max 12.08 d, final posterior σ 5.0 % |
-| Precision after lock-in (30 s bins), all cells | 1.1–3.4 % |
-| Accuracy with a 10 % ballistic-coefficient model error | 9.13 % (bias = ε/(1+ε)) |
+| Calibration lock-in, 600 km, COTS POD, 1-orbit arcs | marginal: median 2.18 d, max 12.08 d over 10 seeds; final posterior σ 5.0 % on the main seed |
+| Precision after lock-in (30 s bins), no drag-model error | 1.1–3.4 % (0.9–1.1 % in the cells with a drag-model error) |
+| Accuracy with a 10 % ballistic-coefficient model error | 9.13 % (bias = −ε/(1+ε): density reads low when B is overestimated) |
 | Uncalibrated gauge, worst of 10 seeds | up to 29.5 % off |
 | Drag work per orbit, 300 → 600 km | 627.8 → 4.7 J/kg (Δa 140 → 1.2 m) |
 | Fleet of N hosts with independent 10 % C_D errors | RMS accuracy 9.0 % (N = 1) → 4.6 % (N = 5) |
