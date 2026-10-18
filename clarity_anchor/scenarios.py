@@ -85,7 +85,8 @@ POD_SEED = {"good": 11, "cots": 12, "perfect": 13}
 MC_SEED = 101
 MC_DRAWS = 200
 SRP_MODEL_ERR = 0.10
-VARIANTS = ("A",)  # round 3: A = no mitigation
+ZR_SEED = 31  # round 3: zero-read noise stream, separate so the gauge noise stream is unchanged
+VARIANTS = ("A", "B")  # round 3: A = no mitigation, B = shutter zero-read
 
 
 def _truth_kernel(truth):
@@ -132,6 +133,9 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
         off = _offset_truth(truth, beta)
     meas1 = gauge.measure(rho1, K1, g1, rng_g, b=None if off is None else off["b1"])
     dens1, skip = meas1, None  # what the estimator integrates and bins
+    if off is not None and variant == "B":
+        dens1, skip = gauge.subtract_zero_reads(t1, meas1, off["b1"], np.random.default_rng(ZR_SEED),
+                                                noise=zero_noise)
     tp, rp, vp = pod.observe(truth.t, truth.states, grade,
                              np.random.default_rng(POD_SEED[grade] if pod_seed is None else pod_seed))
     B_model = truth.B_true * (1 + eps_B)
@@ -154,7 +158,7 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     gbar = simpson((g1 * rho1 * w1)[idx], dx=1.0, axis=1) / den
 
     # 30 s products
-    tb, meas_b = gauge.bin_mean(t1, dens1, 30.0)
+    tb, meas_b = gauge.bin_mean(t1, dens1, 30.0, skip=skip)
     _, rho_b = gauge.bin_mean(t1, rho1, 30.0)
     xhat_b = res_kf.at(tb)
     rho_cal = meas_b * xhat_b if inv else meas_b / xhat_b
@@ -240,4 +244,10 @@ def _offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, den
         "acc_lowrho_q": acc_lo, "prec_lowrho_q": prec_lo, "acc_highrho_q": acc_hi, "prec_highrho_q": prec_hi,
         "mean_err_lowrho_q": float(np.mean(e[rp <= q25])), "mean_err_highrho_q": float(np.mean(e[rp >= q75])),
     }
+    if variant == "B":
+        bhat1 = meas1 - dens1  # b_hat at every non-skipped second
+        _, bhat_b = gauge.bin_mean(t1, bhat1, 30.0, skip=skip)
+        d = ((bhat_b - b_b) / rho_b)[post]
+        out.update({"bhat_err_rel_mean": float(np.mean(d)), "bhat_err_rel_std": float(np.std(d)),
+                    "skipped_frac": float(np.mean(skip))})
     return out

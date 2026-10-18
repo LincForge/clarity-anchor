@@ -13,6 +13,7 @@ NOISE_REL = 0.02
 NOISE_FLOOR = 1e-14  # kg/m^3
 WEEK = 7 * 86400.0
 TAU_B = 300.0  # round 3: wall-heating time constant of the sunlit offset term (assumption)
+T_ZERO = 300.0  # round 3: shutter zero-read period (variant B), 1 s closed per period
 
 
 def draw_k0(rng) -> float:
@@ -50,14 +51,23 @@ def measure(rho_true, K, g, rng, noise: bool = True, rel=NOISE_REL, floor=NOISE_
     return out
 
 
-def bin_mean(t, x, width: float = 30.0):
-    """Average samples into contiguous bins of `width` seconds; returns bin centres and means (full bins only)."""
+def bin_mean(t, x, width: float = 30.0, skip=None):
+    """Average samples into contiguous bins of `width` seconds; returns bin centres and means (full bins only).
+
+    skip (round 3): boolean mask of samples left out of the bin mean (shutter zero-read seconds). The bin
+    time stamp stays the mean of all sample times in the bin.
+    """
     t = np.asarray(t, float)
     x = np.asarray(x, float)
     n_per = int(round(width / (t[1] - t[0])))
     nb = len(t) // n_per
     tb = t[: nb * n_per].reshape(nb, n_per).mean(axis=1)
-    xb = x[: nb * n_per].reshape(nb, n_per).mean(axis=1)
+    xr = x[: nb * n_per].reshape(nb, n_per)
+    if skip is None:
+        xb = xr.mean(axis=1)
+    else:
+        keep = ~np.asarray(skip, bool)[: nb * n_per].reshape(nb, n_per)
+        xb = np.sum(np.where(keep, xr, 0.0), axis=1) / keep.sum(axis=1)
     return tb, xb
 
 
@@ -89,3 +99,36 @@ def offset(s, rho_ref: float, beta0: float, beta1: float):
     if not np.all(np.isfinite(s)):
         raise ValueError("sunlit indicator s(t) contains non-finite values")
     return rho_ref * (beta0 + beta1 * s)
+
+
+def zero_read_mask(t, t_zero: float = T_ZERO):
+    """Shutter-closed seconds: t = t_zero, 2 t_zero, ... (none at t = 0; b_hat is held before the first)."""
+    t = np.asarray(t, float)
+    k = np.round(t / t_zero)
+    return (k >= 1) & (np.abs(t - k * t_zero) < 1e-6)
+
+
+def zero_read(t, b, rng, t_zero: float = T_ZERO, noise: bool = True, rel=NOISE_REL, floor=NOISE_FLOOR):
+    """b_meas = b(t_z) + n_z,  n_z ~ N(0, (rel*b(t_z) + floor)^2), at every zero-read second."""
+    m = zero_read_mask(t, t_zero)
+    tz = np.asarray(t, float)[m]
+    bz = np.asarray(b, float)[m]
+    if noise:
+        bz = bz + rng.standard_normal(len(bz)) * (rel * bz + floor)
+    return tz, bz
+
+
+def subtract_zero_reads(t, meas, b, rng, t_zero: float = T_ZERO, noise: bool = True):
+    """Variant B: rho_corr = rho_meas - b_hat, b_hat linear between zero-reads (held outside them).
+
+    Returns (rho_corr, skip). At the skipped (shutter-closed) seconds rho_corr is filled by linear
+    interpolation of its neighbours so the anchor integral stays on the 1 Hz Simpson grid; the 30 s
+    product leaves those samples out (bin_mean(..., skip=skip)).
+    """
+    t = np.asarray(t, float)
+    tz, bz = zero_read(t, b, rng, t_zero, noise=noise)
+    skip = zero_read_mask(t, t_zero)
+    rho_corr = np.asarray(meas, float) - np.interp(t, tz, bz)
+    ok = ~skip
+    rho_corr[skip] = np.interp(t[skip], t[ok], rho_corr[ok])
+    return rho_corr, skip
