@@ -1,5 +1,7 @@
 # clarity-anchor
 
+[![test](https://github.com/LincForge/clarity-anchor/actions/workflows/test.yml/badge.svg)](https://github.com/LincForge/clarity-anchor/actions/workflows/test.yml)
+
 A simulation that tests one idea: a cheap, drifting in-situ density gauge on a satellite can be
 calibrated in orbit against the satellite's own GNSS orbit decay.
 
@@ -31,6 +33,8 @@ precision ≤ 10 %, resolution ≤ 30 s.
 | Uncalibrated gauge, worst of 10 seeds | up to 29.5 % off |
 | Drag work per orbit, 300 → 600 km | 627.8 → 4.7 J/kg (Δa 140 → 1.2 m) |
 | Fleet of N hosts with independent 10 % C_D errors | RMS accuracy 9.0 % (N = 1) → 4.6 % (N = 5) |
+| Additive sun-correlated chamber background, 30 % of typical density, no mitigation (F6) | precision 7.5 % at 400 km, 9.1 % at 600 km (still inside 10 %); calibration factor 11–27 % wrong |
+| Same background with a shutter zero-read of 10 closed seconds every 300 s (F7) | precision 1.5 % at 400 km, 3.4 % at 600 km (no-offset baselines 1.1 % / 2.9 %); causal estimate needs the shadow function and a near-correct lag |
 
 ![F1: Calibration lock-in by altitude](results/F1.png)
 
