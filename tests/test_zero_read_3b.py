@@ -216,4 +216,6 @@ def test_run_cell_n1_interp_reproduces_F6_variant_B():
         if k == "n_bins":
             assert c[k] == ref[k], k
         else:
-            assert c[k] == pytest.approx(ref[k], rel=1e-6, abs=1e-12), k
+            # all floats here are fractions of density or days; abs 1e-8 keeps it a regression guard while
+            # letting near-cancelling means (accuracy ~5e-4) absorb the ~6e-10 platform difference
+            assert c[k] == pytest.approx(ref[k], rel=1e-6, abs=1e-8), k
