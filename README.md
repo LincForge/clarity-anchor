@@ -39,7 +39,8 @@ precision ≤ 10 %, resolution ≤ 30 s.
 Additional figures: [`results/F3.png`](results/F3.png) (accuracy vs ballistic-coefficient error),
 [`results/F4.png`](results/F4.png) (convergence grid across altitudes, POD grades, and arc lengths),
 [`results/F5.png`](results/F5.png) (fleet averaging across $N$ hosts),
-[`results/F6.png`](results/F6.png) (round 3: additive sun-correlated gauge offset, with and without a shutter zero-read).
+[`results/F6.png`](results/F6.png) (round 3: additive sun-correlated gauge offset, with and without a shutter zero-read),
+[`results/F7.png`](results/F7.png) (round 3b: averaged and causal shutter zero-reads).
 
 ## What this does NOT show
 
@@ -55,7 +56,11 @@ Additional figures: [`results/F3.png`](results/F3.png) (accuracy vs ballistic-co
   - Time-correlated POD errors (all POD noise here is white per 10 s epoch).
   - Gauge response time (the 1 Hz gauge responds instantly).
   - Additive chamber background: modeled in round 3 (F6) as a constant plus a sunlit term, sizes assumed,
-    see [`docs/round3-offset-spec.md`](docs/round3-offset-spec.md).
+    see [`docs/round3-offset-spec.md`](docs/round3-offset-spec.md). The shutter zero-read (round 3b, F7) averages
+    N closed seconds per read and, in its causal "fit" form, assumes the flight software knows the shadow function
+    and that the offset is linear in a first-order lag of it with an assumed lag; a lag mismatch was probed once
+    (see [`docs/round3b-zero-read-spec.md`](docs/round3b-zero-read-spec.md) and the F7 section of
+    [`results/summary.md`](results/summary.md)). Real chamber dynamics beyond that form are not modeled.
 - Composition sensitivity is modeled only through a fixed per-species gauge factor; the chamber
   gas dynamics are not simulated.
 
@@ -68,7 +73,7 @@ Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Runs fully offline.
 
 ```bash
 uv sync
-uv run pytest                                  # 56 tests, including analytic checks
+uv run pytest                                  # full suite, including analytic checks
 uv run python -m clarity_anchor.run --fig all  # regenerates results/ (~6-8 min)
 ```
 

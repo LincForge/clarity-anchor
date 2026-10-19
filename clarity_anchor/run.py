@@ -631,6 +631,7 @@ def write_summary():
             L.append(f"| {name} | {c['h_km']:.0f} | {c['grade']} | {c['n_orb']} | {c['n_arcs']} | {_pct(c['R_std'])} | "
                      f"{_pct(c['z_rel_noise_vs_truth'])} | {_pct(c.get('z_mean_bias'))} | {_pct(c['khat_final_err'])} | {_pct(c.get('ksig_final_rel'))} |")
     L += _f6_section(f1)
+    L += _f7_section()
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / "summary.md").write_text("\n".join(L) + "\n")
 
@@ -840,6 +841,187 @@ def _f6_section(f1):
         L[-1] = L[-1].replace(", so C's precision is worse than A's in every offset cell where both were run.",
                               "; C's precision is NOT worse than A's in every offset cell (see table).")
     return L
+
+
+def _pp(x, nd=2):
+    return "n/a" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{100*x:+.{nd}f} pp"
+
+
+def _within(x, ref, tol):
+    """|x - ref| <= tol, with the direction of a miss."""
+    d = x - ref
+    ok = abs(d) <= tol
+    return ok, ("" if ok else (" (above: worse)" if d > 0 else " (below: better)"))
+
+
+def _f7_section():
+    """Round 3b section (docs/round3b-zero-read-spec.md §5-§6). Every number is read from results/F7.json."""
+    f7 = _load("F7")
+    L = ["", "## F7: averaged and causal shutter zero-reads (round 3b, docs/round3b-zero-read-spec.md)", ""]
+    if not f7:
+        return L + ["UNMEASURED (results/F7.json missing; run `python -m clarity_anchor.run --fig F7`)."]
+    cfg, base = f7["config"], f7["baseline_from_F6"]
+    cells, probe = f7["cells"], f7["probe"]
+    by = {_f7_key(c): c for c in cells}
+    tau = cfg["tau_model_main_s"]
+    pr = probe[0] if probe else None
+    L += [f"Truth as in F6. Variant B only: the shutter closes for N seconds every {cfg['t_zero_s']:g} s "
+          f"(N ∈ {{{', '.join(str(n) for n in cfg['n_zero'])}}}); one zero-read per period = mean of b + n_z over the N closed "
+          "seconds, time-stamped at the window centre. b̂ estimators: interp = linear between the previous and the NEXT read "
+          "(round 3, non-causal, reference); hold = last completed read (causal, b̂ = 0 before the first); fit = causal OLS "
+          "of all completed reads on the window-mean lagged sunlit indicator s_model, b̂ = ĉ0 + ĉ1·s_model(t), with s_model "
+          f"computed from the known shadow geometry and an ASSUMED lag τ_model ({tau:g} s in the main sweep, matched to "
+          f"truth), holding until two reads with regressor std ≥ {cfg['fit_min_spread']:g} exist. 30 s product bins with fewer "
+          f"than {cfg['min_valid']} valid samples are gaps (NaN), excluded from every metric. Good POD, 1-orbit arcs, ε_B = 0, "
+          f"gauge seed {cfg['gauge_seed']}, zero-read seed {cfg['zr_seed']}. b̂ RMS = RMS of (b̂ − b)/ρ_ref over the 1 Hz "
+          "non-shutter seconds of days 1–14. No-offset baseline per altitude = F6 variant A at (0, 0), quoted from F6.json, "
+          "not re-run: " + ", ".join(f"{h} km accuracy {_pct(v['accuracy'])}, precision {_pct(v['precision'])}"
+                                    for h, v in base.items()) + ".", "",
+          "| h (km) | β0 | β1 | N | mode | τ_model (s) | convergence | accuracy | precision | prec_sunlit | prec_eclipse | gap fraction | duty lost | b̂ RMS (rel. ρ_ref) | final cal. error | offset_corr | prec − baseline | acc ≤20 % | prec ≤10 % |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    rows = sorted(cells, key=lambda c: (c["h_km"], -c["beta0"], c["zr_mode"] != "interp", c["zr_mode"], c["n_zero"])) + probe
+    for c in rows:
+        win = "after conv." if c["converged"] else "days 7–14, no conv."
+        b = base[f"{c['h_km']:.0f}"]
+        L.append(f"| {c['h_km']:.0f} | {c['beta0']:.1f} | {c['beta1']:.1f} | {c['n_zero']} | {c['zr_mode']} | {c['tau_model']:g} | "
+                 f"{_days(c)} | {_pct(c['accuracy'])} ({win}) | {_pct(c['precision'])} | {_pct(c['prec_sunlit'])} | "
+                 f"{_pct(c['prec_eclipse'])} | {_pct(c['gap_frac'])} | {_pct(c['skipped_frac'])} | {_pct(c['bhat_rms_rel_d1_14'])} | "
+                 f"{_pct(c['khat_final_err'])} | {_num(c['offset_corr'])} | {_pp(c['precision'] - b['precision'])} | "
+                 f"{metrics.verdict(c['accuracy'], metrics.ACC_LIMIT)} | {metrics.verdict(c['precision'], metrics.PREC_LIMIT)} |")
+    ns = sorted({c["n_zero"] for c in cells})
+    gaps = ", ".join(f"N = {n}: {_pct(max(c['gap_frac'] for c in cells if c['n_zero'] == n))}" for n in ns)
+    L += ["", f"Gap fraction (largest over cells) by N: {gaps}. At N = {max(ns)} the closed window covers one full 30 s bin "
+          "per period, so one bin in ten is a gap by construction; gaps are reported, not filled, and excluded from "
+          "accuracy and precision. The last row is the τ_model probe.", ""]
+
+    # ---- pre-registered expectations R3b-1..R3b-6 ----
+    L += ["### Pre-registered expectations (round-3b spec §6)", "",
+          "Definitions (fixed before the sweep ran, see docs/DECISIONS.md): \"within X pp\" = |Δprecision| ≤ X pp; "
+          "R3b-3 \"any N\" = every N in the sweep and both β (both have β1 > 0); each verdict states the direction of a miss.", "",
+          "| # | Expectation | Measured | Verdict |", "|---|---|---|---|"]
+    betas = [tuple(b) for b in cfg["betas"]]
+
+    def get(h, beta, n, mode, t=tau):
+        return by.get((h, beta[0], beta[1], n, mode, t))
+
+    def tolrow(tag, text, pairs, tol):
+        parts, ok_all, have = [], True, True
+        for lab, x, ref in pairs:
+            if x is None or ref is None:
+                have = False
+                continue
+            ok, dirn = _within(x, ref, tol)
+            ok_all &= ok
+            parts.append(f"{lab}: {_pct(x)} vs {_pct(ref)} (Δ {_pp(x - ref, 3)}){dirn}")
+        L.append(f"| {tag} | {text} | {'; '.join(parts) or '—'} | {('PASS' if ok_all else 'FAIL') if have else 'UNMEASURED'} |")
+
+    b6 = base["600"]["precision"]
+    for tag, n, tol in (("R3b-1", 10, 0.010), ("R3b-2", 30, 0.005)):
+        pairs = [(f"({bb[0]:g}, {bb[1]:g})", (get(600.0, bb, n, "interp") or {}).get("precision"), b6) for bb in betas]
+        tolrow(tag, f"interp, N = {n}: 600 km precision within {100*tol:.1f} pp of the no-offset baseline, both β", pairs, tol)
+    # R3b-3
+    parts, ok_all, have, nmet = [], True, True, 0
+    for bb in betas:
+        for n in ns:
+            ch, ci = get(400.0, bb, n, "hold"), get(400.0, bb, n, "interp")
+            if ch is None or ci is None:
+                have = False
+                continue
+            d = ch["precision"] - ci["precision"]
+            ok = d > 0.02
+            nmet += ok
+            ok_all &= ok
+            parts.append(f"({bb[0]:g}, {bb[1]:g}) N = {n}: hold {_pct(ch['precision'])} vs interp {_pct(ci['precision'])} "
+                         f"(Δ {_pp(d, 3)}){'' if ok else (' (hold worse by less than 2 pp)' if d > 0 else ' (hold not worse)')}")
+    L.append(f"| R3b-3 | hold, β1 = 0.3, any N: 400 km precision worse than interp by more than 2 pp | {'; '.join(parts)}. "
+             f"Met in {nmet} of {len(parts)} | {('PASS' if ok_all else 'FAIL') if have else 'UNMEASURED'} |")
+    # R3b-4
+    pairs = []
+    for h in (400.0, 600.0):
+        for bb in betas:
+            cf, ci = get(h, bb, 10, "fit"), get(h, bb, 10, "interp")
+            pairs.append((f"{h:.0f} km ({bb[0]:g}, {bb[1]:g}) fit vs interp", cf and cf["precision"], ci and ci["precision"]))
+    tolrow("R3b-4", f"fit (τ_model = {tau:g} s), N = 10: precision within 0.5 pp of interp at the same N, both altitudes, both β",
+           pairs, 0.005)
+    # R3b-5
+    pm = get(400.0, (0.3, 0.3), 10, "fit")
+    tolrow("R3b-5", f"fit probe (τ_model = {cfg['probe']['tau_model']:g} s): precision within 1.5 pp of the matched fit cell "
+           "(400 km, (0.3, 0.3), N = 10)", [("probe vs matched", pr and pr["precision"], pm and pm["precision"])], 0.015)
+    # R3b-6
+    reg = f7["regression"]["n1_interp_vs_F6_B"]
+    ident = f7["regression"].get("results_identical_to_ref", {})
+    ok6 = bool(reg) and all(not r["mismatched_keys"] for r in reg) and bool(ident) and all(ident.values())
+    regs = "; ".join(f"{r['h_km']:.0f} km ({r['beta0']:g}, {r['beta1']:g}): {r['n_keys'] - len(r['mismatched_keys'])}/{r['n_keys']} "
+                     "scalar keys equal" + (f" (differ: {', '.join(r['mismatched_keys'])})" if r["mismatched_keys"] else "")
+                     for r in reg)
+    nid = sum(ident.values())
+    L.append(f"| R3b-6 | N = 1 interp reproduces F6 variant B exactly; F1–F6 byte-identical | {regs}. Files under results/ at "
+             f"{cfg['ref_commit']}: {nid}/{len(ident)} byte-identical (summary.md: unchanged prefix) | {'PASS' if ok6 else 'FAIL'} |")
+
+    # ---- reading ----
+    L += ["", "### Reading (every number generated from results/F7.json)", ""]
+    for h in (400.0, 600.0):
+        bb = betas[0]
+        line = ", ".join(f"{m} " + "/".join(_pct(get(h, bb, n, m)["precision"]) for n in ns) for m in ("interp", "hold", "fit")
+                         if all(get(h, bb, n, m) for n in ns))
+        L.append(f"- {h:.0f} km, ({bb[0]:g}, {bb[1]:g}), precision at N = {'/'.join(str(n) for n in ns)}: {line}; no-offset "
+                 f"baseline {_pct(base[f'{h:.0f}']['precision'])}.")
+    rms = ", ".join(f"{m} N = {n}: {_pct(get(600.0, betas[0], n, m)['bhat_rms_rel_d1_14'])}"
+                    for m in ("interp", "hold", "fit") for n in ns if get(600.0, betas[0], n, m))
+    L.append(f"- b̂ RMS at 600 km, ({betas[0][0]:g}, {betas[0][1]:g}): {rms}.")
+    pc = f7["panel_c"]
+    L.append(f"- Panel (c), {pc['h_km']:.0f} km, N = {pc['n_zero']}, two orbits around day 7 ({pc['n_terminator_crossings']} "
+             f"terminator crossings): (b̂ − b)/ρ_ref RMS hold {_pct(pc['hold']['rms'])} (max abs {_pct(pc['hold']['max_abs'])}), "
+             f"fit {_pct(pc['fit']['rms'])} (max abs {_pct(pc['fit']['max_abs'])}).")
+    if pr and pm:
+        L.append(f"- τ_model probe: b̂ RMS {_pct(pr['bhat_rms_rel_d1_14'])} vs matched {_pct(pm['bhat_rms_rel_d1_14'])}; "
+                 f"precision {_pct(pr['precision'])} vs {_pct(pm['precision'])}.")
+    L += ["", _f7_paragraph(f7, get, betas, ns, base, pr, pm)]
+    return L
+
+
+def _f7_paragraph(f7, get, betas, ns, base, pr, pm):
+    """One-paragraph reading; numbers from F7.json, wording conditioned on the measured verdict margins."""
+    need = [get(h, bb, n, m) for h in (400.0, 600.0) for bb in betas for n in ns for m in ("interp", "hold", "fit")]
+    if not all(need) or not (pr and pm):
+        return "Reading: UNMEASURED (sweep incomplete; see the table)."
+    b4, b6 = base["400"]["precision"], base["600"]["precision"]
+    n10, n30 = 10, max(ns)
+    d10 = max(get(600.0, bb, n10, "interp")["precision"] - b6 for bb in betas)
+    d30 = max(get(600.0, bb, n30, "interp")["precision"] - b6 for bb in betas)
+    gap = max(c["gap_frac"] for c in f7["cells"] if c["n_zero"] == n30)
+    duty = {n: get(600.0, betas[0], n, "interp")["skipped_frac"] for n in (n10, n30)}
+    dh = [get(400.0, bb, n, "hold")["precision"] - get(400.0, bb, n, "interp")["precision"] for bb in betas for n in ns]
+    nh = sum(d > 0.02 for d in dh)
+    h6 = min(get(600.0, bb, n30, "hold")["precision"] - b6 for bb in betas)
+    fb = [get(h, bb, n, "fit")["precision"] - (b4 if h == 400.0 else b6) for h in (400.0, 600.0) for bb in betas for n in ns]
+    fi = [get(h, bb, n10, "fit")["precision"] - get(h, bb, n10, "interp")["precision"] for h in (400.0, 600.0) for bb in betas]
+    dp = pr["precision"] - pm["precision"]
+    hold_dir = ("with hold worse in every cell" if min(dh) > 0 else "and hold is not worse in every cell")
+    r4 = max(abs(x) for x in fi) <= 0.005
+    side = "fit on the better side" if max(fi) < 0 else ("fit on the worse side" if min(fi) > 0 else "mixed sides")
+    claim = (d10 <= 0.01 and r4)
+    return (
+        f"Reading. Averaging the zero-read works: the non-causal interp estimator brings 600 km precision to within "
+        f"{_pp(d10)} of the no-offset baseline at N = {n10} and {_pp(d30)} at N = {n30} (worst β; R3b-1 and R3b-2 "
+        f"{'PASS' if d10 <= 0.01 and d30 <= 0.005 else 'see table'}), for a shutter duty cost of {_pct(duty[n10])} and "
+        f"{_pct(duty[n30])}, and at N = {n30} {_pct(gap)} of the 30 s bins are gaps. Plain causal hold is not enough: at "
+        f"400 km it is {_pp(min(dh))} to {_pp(max(dh))} worse than interp (the 2 pp bar of R3b-3 is cleared in {nh} of "
+        f"{len(dh)} cells, so R3b-3 {'PASSES' if nh == len(dh) else 'FAILS by margin, ' + hold_dir}), "
+        f"and at 600 km it stays at least {_pp(h6)} above the baseline even at N = {n30}, because b̂ steps at the "
+        f"terminators (panel c). The causal fit closes the gap and more: it lands between {_pp(min(fb))} and {_pp(max(fb))} "
+        f"of the baseline in every main cell, {_pp(min(fi))} to {_pp(max(fi))} relative to interp at N = {n10} "
+        f"(R3b-4 {'PASS' if r4 else 'FAIL'}, {side}), because it pools every read instead of two. That result rests on "
+        f"two assumptions the simulation grants: the flight software knows the shadow geometry and the offset is linear "
+        f"in a first-order lag of it. Halving the assumed lag (τ_model {f7['config']['probe']['tau_model']:g} s vs "
+        f"{f7['config']['tau_b_s']:g} s) costs {_pp(dp)} at 400 km, inside the 1.5 pp bound of R3b-5 by "
+        f"{_pp(0.015 - dp)}; one mismatched lag at one altitude was run, so the lag should still be measured on the "
+        f"bench, not assumed. " + (
+            f"So the §1 claim holds in this model: N ≥ {n10} restores the 600 km product, and a causal estimator "
+            f"matches the interpolated one without its latency only when it is given the shadow function and a lag "
+            f"close to the truth; without that model (hold), it does not." if claim else
+            "So the §1 claim does NOT hold as stated in this model; see the verdict table for which part fails.")
+    )
 
 
 FIGS = {"signal": decay_signal, "F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5, "F6": fig_f6,

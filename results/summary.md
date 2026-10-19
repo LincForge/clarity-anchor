@@ -243,3 +243,72 @@ State [y, d], d = y·c/ρ_s (ρ_s = median ρ_meas over the first arc), measurem
 - **A (no mitigation)**, β ≠ 0: worst accuracy 2.27 % (600 km, (0.0, 0.3)), worst precision 9.14 % (600 km, (0.0, 0.3)). The anchor still matches the drag-weighted arc integral, so the offset is absorbed into ŷ and shows up as within-orbit structure (precision, offset_corr) rather than as a mean bias. ŷ no longer equals 1/K_eff: 0/6 offset cells meet the 5 % convergence rule; final calibration-factor error ŷ·K_eff,true − 1: 400 km (0.1, 0.1) -11.12 %, 400 km (0.3, 0.3) -26.35 %, 400 km (0.0, 0.3) -12.41 %, 600 km (0.1, 0.1) -11.98 %, 600 km (0.3, 0.3) -27.13 %, 600 km (0.0, 0.3) -13.49 %.
 - **B (shutter zero-read)**, β ≠ 0: worst accuracy 1.57 % (600 km, (0.3, 0.3)), worst precision 5.52 % (600 km, (0.3, 0.3)). The single 1 s zero-read carries the gauge noise floor (1e-14 kg/m³ = 400 km 0.26 %, 600 km 5.37 % of ρ_ref), and b̂ holds that error for 300 s, so it does not average down in the 30 s bins. With noise-free zero-reads the largest precision change vs the no-offset cell is 400 km 0.35 pp, 600 km 0.24 pp (interpolation error of the lagged sunlit term only). B's offset_corr exceeds the baseline corr column (the correlation the no-offset product already has with the same b/ρ shape) by at most +0.02.
 - **C (2-state, no zero-reads)**, β ≠ 0: worst accuracy 4.81 % (600 km, (0.0, 0.3)), worst precision 14.50 % (600 km, (0.0, 0.3)). Final posterior corr(y, c) 0.964–0.970. ĉ tracks the arc-mean offset, but subtracting a per-arc constant leaves (b − c̄)/ρ_true, which is largest where ρ_true is smallest, so C's precision is worse than A's in every offset cell where both were run.
+
+## F7: averaged and causal shutter zero-reads (round 3b, docs/round3b-zero-read-spec.md)
+
+Truth as in F6. Variant B only: the shutter closes for N seconds every 300 s (N ∈ {1, 10, 30}); one zero-read per period = mean of b + n_z over the N closed seconds, time-stamped at the window centre. b̂ estimators: interp = linear between the previous and the NEXT read (round 3, non-causal, reference); hold = last completed read (causal, b̂ = 0 before the first); fit = causal OLS of all completed reads on the window-mean lagged sunlit indicator s_model, b̂ = ĉ0 + ĉ1·s_model(t), with s_model computed from the known shadow geometry and an ASSUMED lag τ_model (300 s in the main sweep, matched to truth), holding until two reads with regressor std ≥ 0.1 exist. 30 s product bins with fewer than 15 valid samples are gaps (NaN), excluded from every metric. Good POD, 1-orbit arcs, ε_B = 0, gauge seed 10, zero-read seed 31. b̂ RMS = RMS of (b̂ − b)/ρ_ref over the 1 Hz non-shutter seconds of days 1–14. No-offset baseline per altitude = F6 variant A at (0, 0), quoted from F6.json, not re-run: 400 km accuracy 0.04 %, precision 1.13 %, 600 km accuracy 1.50 %, precision 2.89 %.
+
+| h (km) | β0 | β1 | N | mode | τ_model (s) | convergence | accuracy | precision | prec_sunlit | prec_eclipse | gap fraction | duty lost | b̂ RMS (rel. ρ_ref) | final cal. error | offset_corr | prec − baseline | acc ≤20 % | prec ≤10 % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 400 | 0.3 | 0.3 | 1 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.65 % | 1.58 % | 1.30 % | 0.00 % | 0.33 % | 1.37 % | -0.79 % | 0.54 | +0.52 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 10 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.50 % | 1.39 % | 1.13 % | 0.00 % | 3.33 % | 0.94 % | -0.68 % | 0.61 | +0.37 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 30 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.52 % | 1.41 % | 1.13 % | 10.00 % | 10.00 % | 0.93 % | -0.73 % | 0.62 | +0.39 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 1 | fit | 300 | 0.06 d | 0.06 % (after conv.) | 1.14 % | 1.09 % | 0.92 % | 0.00 % | 0.33 % | 0.03 % | -0.72 % | 0.61 | +0.01 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 10 | fit | 300 | 0.06 d | 0.07 % (after conv.) | 1.15 % | 1.10 % | 0.93 % | 0.00 % | 3.33 % | 0.01 % | -0.73 % | 0.61 | +0.02 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 30 | fit | 300 | 0.06 d | 0.07 % (after conv.) | 1.15 % | 1.10 % | 0.92 % | 10.00 % | 10.00 % | 0.01 % | -0.74 % | 0.61 | +0.01 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 1 | hold | 300 | 0.06 d | 0.16 % (after conv.) | 3.65 % | 3.15 % | 3.99 % | 0.00 % | 0.33 % | 3.82 % | -0.78 % | 0.18 | +2.52 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 10 | hold | 300 | 0.06 d | 0.16 % (after conv.) | 3.47 % | 2.95 % | 3.83 % | 0.00 % | 3.33 % | 3.58 % | -0.68 % | 0.19 | +2.34 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 30 | hold | 300 | 0.06 d | 0.16 % (after conv.) | 3.48 % | 2.95 % | 3.85 % | 10.00 % | 10.00 % | 3.52 % | -0.73 % | 0.19 | +2.35 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 1 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.52 % | 1.44 % | 1.14 % | 0.00 % | 0.33 % | 1.04 % | -0.77 % | 0.66 | +0.39 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 10 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.49 % | 1.38 % | 1.11 % | 0.00 % | 3.33 % | 0.90 % | -0.71 % | 0.68 | +0.36 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 30 | interp | 300 | 0.06 d | 0.05 % (after conv.) | 1.52 % | 1.41 % | 1.12 % | 10.00 % | 10.00 % | 0.92 % | -0.73 % | 0.69 | +0.39 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 1 | fit | 300 | 0.06 d | 0.05 % (after conv.) | 1.13 % | 1.08 % | 0.91 % | 0.00 % | 0.33 % | 0.02 % | -0.73 % | 0.63 | +0.00 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 10 | fit | 300 | 0.06 d | 0.05 % (after conv.) | 1.14 % | 1.08 % | 0.91 % | 0.00 % | 3.33 % | 0.01 % | -0.73 % | 0.63 | +0.00 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 30 | fit | 300 | 0.06 d | 0.05 % (after conv.) | 1.13 % | 1.09 % | 0.91 % | 10.00 % | 10.00 % | 0.00 % | -0.73 % | 0.64 | +0.00 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 1 | hold | 300 | 0.06 d | 0.15 % (after conv.) | 3.56 % | 3.04 % | 3.91 % | 0.00 % | 0.33 % | 3.65 % | -0.76 % | 0.27 | +2.42 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 10 | hold | 300 | 0.06 d | 0.15 % (after conv.) | 3.46 % | 2.93 % | 3.82 % | 0.00 % | 3.33 % | 3.57 % | -0.71 % | 0.28 | +2.33 pp | PASS | PASS |
+| 400 | 0.0 | 0.3 | 30 | hold | 300 | 0.06 d | 0.15 % (after conv.) | 3.48 % | 2.95 % | 3.84 % | 10.00 % | 10.00 % | 3.52 % | -0.73 % | 0.27 | +2.34 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 1 | interp | 300 | 0.47 d | 1.57 % (after conv.) | 5.52 % | 4.21 % | 6.42 % | 0.00 % | 0.33 % | 5.44 % | -1.50 % | 0.02 | +2.63 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 10 | interp | 300 | 0.47 d | 1.56 % (after conv.) | 3.41 % | 2.48 % | 3.20 % | 0.00 % | 3.33 % | 1.86 % | -1.62 % | 0.07 | +0.52 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 30 | interp | 300 | 0.47 d | 1.54 % (after conv.) | 3.26 % | 2.32 % | 2.92 % | 10.00 % | 10.00 % | 1.30 % | -1.68 % | 0.09 | +0.37 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 1 | fit | 300 | 0.20 d | 1.53 % (after conv.) | 3.09 % | 2.18 % | 2.70 % | 0.00 % | 0.33 % | 0.33 % | -1.66 % | 0.03 | +0.20 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 10 | fit | 300 | 0.47 d | 1.52 % (after conv.) | 2.92 % | 2.10 % | 2.71 % | 0.00 % | 3.33 % | 0.06 % | -1.67 % | 0.04 | +0.03 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 30 | fit | 300 | 0.47 d | 1.52 % (after conv.) | 2.88 % | 2.09 % | 2.68 % | 10.00 % | 10.00 % | 0.03 % | -1.69 % | 0.05 | -0.01 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 1 | hold | 300 | 0.20 d | 1.83 % (after conv.) | 7.35 % | 5.60 % | 8.76 % | 0.00 % | 0.33 % | 7.48 % | -1.50 % | -0.12 | +4.46 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 10 | hold | 300 | 0.47 d | 1.84 % (after conv.) | 5.00 % | 3.66 % | 5.44 % | 0.00 % | 3.33 % | 4.03 % | -1.62 % | -0.16 | +2.10 pp | PASS | PASS |
+| 600 | 0.3 | 0.3 | 30 | hold | 300 | 0.20 d | 1.79 % (after conv.) | 4.83 % | 3.52 % | 5.16 % | 10.00 % | 10.00 % | 3.61 % | -1.68 % | -0.17 | +1.94 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 1 | interp | 300 | 0.47 d | 1.57 % (after conv.) | 5.17 % | 3.93 % | 5.90 % | 0.00 % | 0.33 % | 4.94 % | -1.52 % | 0.39 | +2.28 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 10 | interp | 300 | 0.47 d | 1.56 % (after conv.) | 3.36 % | 2.44 % | 3.11 % | 0.00 % | 3.33 % | 1.72 % | -1.63 % | 0.60 | +0.47 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 30 | interp | 300 | 0.47 d | 1.54 % (after conv.) | 3.24 % | 2.31 % | 2.88 % | 10.00 % | 10.00 % | 1.23 % | -1.68 % | 0.64 | +0.35 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 1 | fit | 300 | 0.47 d | 1.57 % (after conv.) | 3.03 % | 2.11 % | 2.67 % | 0.00 % | 0.33 % | 0.29 % | -1.66 % | 0.64 | +0.14 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 10 | fit | 300 | 0.47 d | 1.51 % (after conv.) | 2.93 % | 2.10 % | 2.71 % | 0.00 % | 3.33 % | 0.06 % | -1.67 % | 0.60 | +0.03 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 30 | fit | 300 | 0.47 d | 1.51 % (after conv.) | 2.89 % | 2.10 % | 2.68 % | 10.00 % | 10.00 % | 0.03 % | -1.69 % | 0.60 | -0.00 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 1 | hold | 300 | 0.20 d | 1.81 % (after conv.) | 6.96 % | 5.30 % | 8.20 % | 0.00 % | 0.33 % | 6.94 % | -1.52 % | 0.26 | +4.07 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 10 | hold | 300 | 0.47 d | 1.83 % (after conv.) | 4.95 % | 3.62 % | 5.36 % | 0.00 % | 3.33 % | 3.94 % | -1.62 % | 0.36 | +2.06 pp | PASS | PASS |
+| 600 | 0.0 | 0.3 | 30 | hold | 300 | 0.47 d | 1.82 % (after conv.) | 4.78 % | 3.47 % | 5.11 % | 10.00 % | 10.00 % | 3.58 % | -1.68 % | 0.37 | +1.89 pp | PASS | PASS |
+| 400 | 0.3 | 0.3 | 10 | fit | 150 | 0.06 d | 0.08 % (after conv.) | 2.63 % | 2.39 % | 2.74 % | 0.00 % | 3.33 % | 2.59 % | -0.74 % | 0.42 | +1.50 pp | PASS | PASS |
+
+Gap fraction (largest over cells) by N: N = 1: 0.00 %, N = 10: 0.00 %, N = 30: 10.00 %. At N = 30 the closed window covers one full 30 s bin per period, so one bin in ten is a gap by construction; gaps are reported, not filled, and excluded from accuracy and precision. The last row is the τ_model probe.
+
+### Pre-registered expectations (round-3b spec §6)
+
+Definitions (fixed before the sweep ran, see docs/DECISIONS.md): "within X pp" = |Δprecision| ≤ X pp; R3b-3 "any N" = every N in the sweep and both β (both have β1 > 0); each verdict states the direction of a miss.
+
+| # | Expectation | Measured | Verdict |
+|---|---|---|---|
+| R3b-1 | interp, N = 10: 600 km precision within 1.0 pp of the no-offset baseline, both β | (0.3, 0.3): 3.41 % vs 2.89 % (Δ +0.520 pp); (0, 0.3): 3.36 % vs 2.89 % (Δ +0.470 pp) | PASS |
+| R3b-2 | interp, N = 30: 600 km precision within 0.5 pp of the no-offset baseline, both β | (0.3, 0.3): 3.26 % vs 2.89 % (Δ +0.370 pp); (0, 0.3): 3.24 % vs 2.89 % (Δ +0.352 pp) | PASS |
+| R3b-3 | hold, β1 = 0.3, any N: 400 km precision worse than interp by more than 2 pp | (0.3, 0.3) N = 1: hold 3.65 % vs interp 1.65 % (Δ +1.997 pp) (hold worse by less than 2 pp); (0.3, 0.3) N = 10: hold 3.47 % vs interp 1.50 % (Δ +1.970 pp) (hold worse by less than 2 pp); (0.3, 0.3) N = 30: hold 3.48 % vs interp 1.52 % (Δ +1.960 pp) (hold worse by less than 2 pp); (0, 0.3) N = 1: hold 3.56 % vs interp 1.52 % (Δ +2.031 pp); (0, 0.3) N = 10: hold 3.46 % vs interp 1.49 % (Δ +1.972 pp) (hold worse by less than 2 pp); (0, 0.3) N = 30: hold 3.48 % vs interp 1.52 % (Δ +1.958 pp) (hold worse by less than 2 pp). Met in 1 of 6 | FAIL |
+| R3b-4 | fit (τ_model = 300 s), N = 10: precision within 0.5 pp of interp at the same N, both altitudes, both β | 400 km (0.3, 0.3) fit vs interp: 1.15 % vs 1.50 % (Δ -0.350 pp); 400 km (0, 0.3) fit vs interp: 1.14 % vs 1.49 % (Δ -0.352 pp); 600 km (0.3, 0.3) fit vs interp: 2.92 % vs 3.41 % (Δ -0.487 pp); 600 km (0, 0.3) fit vs interp: 2.93 % vs 3.36 % (Δ -0.435 pp) | PASS |
+| R3b-5 | fit probe (τ_model = 150 s): precision within 1.5 pp of the matched fit cell (400 km, (0.3, 0.3), N = 10) | probe vs matched: 2.63 % vs 1.15 % (Δ +1.479 pp) | PASS |
+| R3b-6 | N = 1 interp reproduces F6 variant B exactly; F1–F6 byte-identical | 400 km (0.3, 0.3): 47/47 scalar keys equal; 600 km (0.3, 0.3): 47/47 scalar keys equal; 400 km (0, 0.3): 47/47 scalar keys equal; 600 km (0, 0.3): 47/47 scalar keys equal. Files under results/ at efe7628: 15/15 byte-identical (summary.md: unchanged prefix) | PASS |
+
+### Reading (every number generated from results/F7.json)
+
+- 400 km, (0.3, 0.3), precision at N = 1/10/30: interp 1.65 %/1.50 %/1.52 %, hold 3.65 %/3.47 %/3.48 %, fit 1.14 %/1.15 %/1.15 %; no-offset baseline 1.13 %.
+- 600 km, (0.3, 0.3), precision at N = 1/10/30: interp 5.52 %/3.41 %/3.26 %, hold 7.35 %/5.00 %/4.83 %, fit 3.09 %/2.92 %/2.88 %; no-offset baseline 2.89 %.
+- b̂ RMS at 600 km, (0.3, 0.3): interp N = 1: 5.44 %, interp N = 10: 1.86 %, interp N = 30: 1.30 %, hold N = 1: 7.48 %, hold N = 10: 4.03 %, hold N = 30: 3.61 %, fit N = 1: 0.33 %, fit N = 10: 0.06 %, fit N = 30: 0.03 %.
+- Panel (c), 600 km, N = 10, two orbits around day 7 (5 terminator crossings): (b̂ − b)/ρ_ref RMS hold 3.62 % (max abs 17.55 %), fit 0.07 % (max abs 0.09 %).
+- τ_model probe: b̂ RMS 2.59 % vs matched 0.01 %; precision 2.63 % vs 1.15 %.
+
+Reading. Averaging the zero-read works: the non-causal interp estimator brings 600 km precision to within +0.52 pp of the no-offset baseline at N = 10 and +0.37 pp at N = 30 (worst β; R3b-1 and R3b-2 PASS), for a shutter duty cost of 3.33 % and 10.00 %, and at N = 30 10.00 % of the 30 s bins are gaps. Plain causal hold is not enough: at 400 km it is +1.96 pp to +2.03 pp worse than interp (the 2 pp bar of R3b-3 is cleared in 1 of 6 cells, so R3b-3 FAILS by margin, with hold worse in every cell), and at 600 km it stays at least +1.89 pp above the baseline even at N = 30, because b̂ steps at the terminators (panel c). The causal fit closes the gap and more: it lands between -0.01 pp and +0.20 pp of the baseline in every main cell, -0.49 pp to -0.35 pp relative to interp at N = 10 (R3b-4 PASS, fit on the better side), because it pools every read instead of two. That result rests on two assumptions the simulation grants: the flight software knows the shadow geometry and the offset is linear in a first-order lag of it. Halving the assumed lag (τ_model 150 s vs 300 s) costs +1.48 pp at 400 km, inside the 1.5 pp bound of R3b-5 by +0.02 pp; one mismatched lag at one altitude was run, so the lag should still be measured on the bench, not assumed. So the §1 claim holds in this model: N ≥ 10 restores the 600 km product, and a causal estimator matches the interpolated one without its latency only when it is given the shadow function and a lag close to the truth; without that model (hold), it does not.

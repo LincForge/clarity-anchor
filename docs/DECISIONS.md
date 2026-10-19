@@ -237,3 +237,61 @@ structure and robust inequalities, not the 14-day physics numbers.
 ## Round 3 open questions
 - None blocking. Untested: zero-read averaging (N shutter seconds per read), a causal b̂, and noise that scales with
   total chamber pressure.
+
+## Round 3b: averaged and causal shutter zero-reads (docs/round3b-zero-read-spec.md)
+
+Every result number for this round is in `results/F7.json` and the generated "## F7" section of
+`results/summary.md`; none is repeated here.
+
+**Modeling assumptions (spec §3.2).**
+- "fit" assumes the flight software knows the shadow geometry (GNSS position + sun ephemeris). Here s_model is
+  computed from the truth orbit's cylindrical-shadow indicator, so GNSS position error and penumbra are ignored.
+- "fit" assumes the functional form b = c0 + c1·s_model with s_model a first-order lag of the sunlit indicator with
+  an ASSUMED lag τ_model. That form is the modeling assumption, and with τ_model = τ_b it is the truth's own form,
+  so the matched fit is a best case for a correctly specified model. Only one mismatched lag, at one altitude, was
+  run (the spec's probe). "hold" assumes nothing about b.
+- Regressor of each read = mean of s_model over the read's closed window (the read is the window mean of b + n_z).
+
+**Implementation choices the spec left open (fixed before the sweep ran).**
+- Causality: a read becomes available at the first second after its last closed second (k·t_zero + N). b̂ at the
+  closed seconds is irrelevant: those samples are filled for the anchor and skipped in the product, as in round 3.
+- Before the first read, hold and fit use b̂ = 0 as the spec says. The spec calls that the round 3 convention; it
+  is not quite: round 3's interp (np.interp) held the FIRST read backwards, which is non-causal. interp keeps the
+  round 3 behaviour unchanged so that N = 1 reproduces F6 bit for bit (R3b-6).
+- Rank guard: fit keeps holding until at least two reads exist AND the std of their regressors reaches
+  `gauge.FIT_MIN_SPREAD` (value in F7.json `config`). Without it, two reads in the same illumination state give an
+  ill-posed slope that is extrapolated across the next terminator. This tightens the spec's "two reads" fallback.
+- Noise: n_z is drawn per closed second in time order from ZR_SEED, so N = 1 consumes the round 3 draw sequence.
+  A window cut by the end of the series gives no read; its seconds are still skipped.
+- Gaps: a 30 s bin with fewer than `gauge.MIN_VALID` valid samples is NaN and is excluded from every metric
+  (accuracy, precision, sunlit/eclipse splits, offset_corr, mean_err, uncalibrated accuracy). Applied to variant B
+  only. The gap fraction is over all 30 s bins of the 14-day run.
+- b̂ RMS: RMS of (b̂ − b)/ρ_ref over the 1 Hz non-shutter seconds with t ≥ 1 d. The spec asks it for the causal
+  modes; it is also reported for interp as a reference. "duty lost" in the table is the measured skipped fraction.
+- R (filter measurement variance) is the round-2 Monte Carlo, unchanged, as in round 3.
+- The no-offset baseline is quoted from F6.json (variant A at (0, 0)) and copied into F7.json `baseline_from_F6`.
+- R3b-6 is checked in code: every N = 1 interp cell is compared with the stored F6 variant-B cell on every shared
+  scalar key, and every file under results/ at efe7628 is compared byte for byte with the working copy (summary.md
+  as an unchanged prefix, since the F7 section is appended).
+
+**Verdict definitions.** "Within X pp" = |Δprecision| ≤ X pp. R3b-3 "any N" = every N in the sweep, at both β
+(both have β1 > 0); hold must be worse than interp by more than 2 pp in every one of those cells. Each verdict
+states the direction of a miss. These were written into `run._f7_section` before the first sweep run; they were
+committed together with the results, so the ordering rests on this note, not on git history.
+
+**Decided after seeing data (presentation only, no threshold or cell changed).**
+- Verdict-row deltas print to 3 decimals, because a miss just under 2 pp printed as "+2.00 pp" at 2 decimals.
+- The one-paragraph reading at the end of the F7 section was written after the sweep; its numbers and its
+  PASS/FAIL wording are generated from F7.json and conditioned on the measured margins.
+
+**Timebox.** Every main-sweep cell and the probe ran; no cell was dropped.
+
+## Round 3b findings flagged for the reviewer
+- R3b-3 FAILS by margin, not by mechanism: hold is worse than interp at 400 km in every cell, by about the
+  pre-registered amount, but under the 2 pp bar in most cells (see the F7 verdict table for the exact deltas).
+- R3b-4 PASSES with fit on the BETTER side of interp at both altitudes: the causal fit pools every read under a
+  correctly specified model, while interp uses two reads. This is a best case (matched lag, known form).
+- R3b-5 PASSES with a thin margin (see the table). One lag mismatch at one altitude does not show the lag can be
+  assumed; the proposal should still treat τ_b as a bench-measured parameter.
+- R3b-1 and R3b-2 PASS: averaging N closed seconds restores the 600 km product with the non-causal estimator, at the
+  duty cost and (at the largest N) the gap fraction reported in the table.
