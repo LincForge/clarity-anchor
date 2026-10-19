@@ -56,7 +56,8 @@ def test_truth_field_matches_msis_on_reference(field):
     rho_msis, _ = atm.msis_eval(t, s[:, :3])
     expect = rho_msis * f.multiplier(t)
     got = f.density(t, s[:, :3])
-    assert np.max(np.abs(got / expect - 1)) < 1e-6
+    # 1e-5, not 1e-6: pymsis evaluates to ~1e-6 differently on Linux x86_64 than on macOS arm64 (CI 2026-10-18)
+    assert np.max(np.abs(got / expect - 1)) < 1e-5
     # scalar path used by the propagator agrees with the vector path
     i = 37
     assert f.density_scalar(t[i], *s[i, :3]) == pytest.approx(got[i], rel=1e-9)

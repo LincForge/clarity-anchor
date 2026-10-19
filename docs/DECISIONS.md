@@ -295,3 +295,5 @@ committed together with the results, so the ordering rests on this note, not on 
   assumed; the proposal should still treat τ_b as a bench-measured parameter.
 - R3b-1 and R3b-2 PASS: averaging N closed seconds restores the 600 km product with the non-causal estimator, at the
   duty cost and (at the largest N) the gap fraction reported in the table.
+
+**CI (2026-10-18).** A GitHub Actions gate (`.github/workflows/test.yml`, ubuntu, uv, Python 3.12) runs the full suite from a fresh clone (no truth cache, ~80 s). Two tests were loosened for it: the MSIS reference check from 1e-6 to 1e-5 relative, and the R3b-6 regression from exact equality to 1e-6 relative on floats (n_bins exact), because Linux x86_64 and macOS arm64 differ in the last bits of the pymsis evaluation (max 1.05e-6 relative in density). The stored results were produced on macOS arm64 and the exact-equality claims in this file hold there.

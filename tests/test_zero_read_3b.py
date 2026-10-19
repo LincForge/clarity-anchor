@@ -202,11 +202,18 @@ def test_run_cell_rejects_unknown_zr_mode():
 
 
 def test_run_cell_n1_interp_reproduces_F6_variant_B():
-    """R3b-6: N = 1, interp reproduces the stored F6 400 km (0.3, 0.3) variant-B cell exactly."""
+    """R3b-6: N = 1, interp reproduces the stored F6 400 km (0.3, 0.3) variant-B cell.
+
+    Exact on the machine that produced F6.json (macOS arm64); within 1e-6 relative across platforms, since
+    Linux x86_64 differs in the last bits of the MSIS evaluation (CI 2026-10-18). n_bins is exact.
+    """
     f6 = json.loads((RESULTS / "F6.json").read_text())
     ref = next(c for c in f6["cells"] if c["h_km"] == 400.0 and c["beta0"] == 0.3 and c["beta1"] == 0.3
                and c["variant"] == "B")
     c = scenarios.run_cell(400.0, "good", 0.0, 1, beta=(0.3, 0.3), variant="B", n_zero=1, zr_mode="interp")
     for k in ("accuracy", "precision", "conv_days", "acc_sunlit", "acc_eclipse", "offset_corr", "khat_final_err",
               "bhat_err_rel_std", "n_bins"):
-        assert c[k] == ref[k], k
+        if k == "n_bins":
+            assert c[k] == ref[k], k
+        else:
+            assert c[k] == pytest.approx(ref[k], rel=1e-6, abs=1e-12), k
