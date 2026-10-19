@@ -309,6 +309,172 @@ def fig_f6():
     return cells
 
 
+# ---------------------------------------------------------------------------------------------
+# Round 3b: averaged and causal shutter zero-reads (docs/round3b-zero-read-spec.md)
+# ---------------------------------------------------------------------------------------------
+F7_ALTS = (400.0, 600.0)
+F7_BETAS = ((0.3, 0.3), (0.0, 0.3))
+F7_N = (1, 10, 30)
+F7_MODES = ("fit", "interp", "hold")  # spec §5 priority order
+F7_PROBE = {"h_km": 400.0, "beta": (0.3, 0.3), "n_zero": 10, "zr_mode": "fit", "tau_model": 150.0}
+F7_REF_COMMIT = "efe7628"  # round 3 results commit: F1-F6 must stay byte-identical to it
+F7_SERIES = (600.0, (0.3, 0.3), 10)  # panel (c): hold and fit at this (h, beta, N)
+
+
+def _f7_key(c):
+    return (c["h_km"], c["beta0"], c["beta1"], c["n_zero"], c["zr_mode"], c["tau_model"])
+
+
+def _same(a, b):
+    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+        return True
+    return a == b
+
+
+def _results_identical_to(commit):
+    """Byte comparison of every results/ file tracked at `commit` (F1-F6, ensembles, decay signal, summary.md is
+    checked separately as an append-only prefix)."""
+    import subprocess
+
+    root = RESULTS.parent
+    names = subprocess.run(["git", "ls-tree", "--name-only", commit, "results/"], cwd=root, check=True,
+                           capture_output=True, text=True).stdout.split()
+    out = {}
+    for n in names:
+        old = subprocess.run(["git", "show", f"{commit}:{n}"], cwd=root, check=True, capture_output=True).stdout
+        cur = (root / n).read_bytes() if (root / n).exists() else None
+        if n.endswith("summary.md"):
+            out[n] = cur is not None and cur.startswith(old)
+        else:
+            out[n] = cur == old
+    return out
+
+
+def f7_sweep():
+    """Round 3b sweep: 36 main cells (h x beta x N x mode, tau_model = TAU_B) + 1 probe (tau_model = 150 s).
+    Returns (cells, probe, series) where series holds the 1 Hz b_hat of the panel-(c) cells."""
+    from . import gauge
+
+    cells, series = [], {}
+    for mode in F7_MODES:
+        for beta in F7_BETAS:
+            for n in F7_N:
+                for h in F7_ALTS:
+                    keep = (h, beta, n) == F7_SERIES and mode in ("hold", "fit")
+                    c = scenarios.run_cell(h, "good", 0.0, 1, beta=beta, variant="B", n_zero=n, zr_mode=mode,
+                                           keep_series=keep)
+                    if keep:
+                        series[mode] = c.pop("series")
+                    cells.append(c)
+                    print(f"F7 cell h={h:.0f} beta={beta} N={n} {mode}: acc={100*c['accuracy']:.2f} % "
+                          f"prec={100*c['precision']:.2f} % gap={100*c['gap_frac']:.1f} %", flush=True)
+    pr = F7_PROBE
+    probe = scenarios.run_cell(pr["h_km"], "good", 0.0, 1, beta=pr["beta"], variant="B", n_zero=pr["n_zero"],
+                               zr_mode=pr["zr_mode"], tau_model=pr["tau_model"])
+    print(f"F7 probe: acc={100*probe['accuracy']:.2f} % prec={100*probe['precision']:.2f} %", flush=True)
+    if not all(c["tau_model"] == gauge.TAU_B for c in cells):
+        raise RuntimeError("F7 main sweep must use tau_model = TAU_B")
+    return cells, [probe], series
+
+
+def fig_f7():
+    from . import gauge
+
+    cells, probe, series = f7_sweep()
+    f6 = _load("F6")
+    f6by = {_f6_key(c): c for c in f6["cells"]}
+    baseline = {f"{h:.0f}": {k: f6by[(h, 0.0, 0.0, "A")][k] for k in ("accuracy", "precision", "conv_days", "rho_ref")}
+                for h in F7_ALTS}
+    # R3b-6 part 1: every N = 1 interp cell vs the stored F6 variant-B cell, all shared scalar keys
+    reg = []
+    for c in cells:
+        if c["n_zero"] != 1 or c["zr_mode"] != "interp":
+            continue
+        ref = f6by[(c["h_km"], c["beta0"], c["beta1"], "B")]
+        keys = [k for k in ref if k in c and k != "offset_corr_baseline"]
+        bad = [k for k in keys if not _same(c[k], ref[k])]
+        reg.append({"h_km": c["h_km"], "beta0": c["beta0"], "beta1": c["beta1"], "n_keys": len(keys),
+                    "mismatched_keys": bad})
+
+    # ---- figure ----
+    by = {_f7_key(c): c for c in cells}
+    fig = plt.figure(figsize=(11, 11))
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.0, 1.0, 1.1])
+    cols = {"interp": "C0", "hold": "C3", "fit": "C2"}
+    b0, b1 = F7_BETAS[0]
+    for r, (metric, name) in enumerate((("precision", "precision std (%)"), ("accuracy", "accuracy |mean| (%)"))):
+        for j, h in enumerate(F7_ALTS):
+            ax = fig.add_subplot(gs[r, j])
+            for mode in ("interp", "hold", "fit"):
+                y = [100 * by[(h, b0, b1, n, mode, gauge.TAU_B)][metric] for n in F7_N]
+                ax.plot(F7_N, y, "-o", color=cols[mode], label=mode + (" (non-causal)" if mode == "interp" else " (causal)"))
+            if h == F7_PROBE["h_km"] and metric in ("precision", "accuracy"):
+                ax.plot([F7_PROBE["n_zero"]], [100 * probe[0][metric]], "x", color=cols["fit"], ms=9, mew=2,
+                        label=f"fit, τ_model = {F7_PROBE['tau_model']:.0f} s (probe)")
+            ax.axhline(100 * baseline[f"{h:.0f}"][metric], color="k", ls="--", lw=1.0,
+                       label="no-offset baseline (F6, A at (0, 0))")
+            ax.set_xscale("log")
+            ax.set_xticks(F7_N, [str(n) for n in F7_N])
+            ax.set_xlabel("N (closed seconds per zero-read)")
+            ax.set_ylabel(name)
+            ax.set_title(f"F7 ({'ab'[r]}) · {metric}, {h:.0f} km, (β0, β1) = ({b0:g}, {b1:g})", fontsize=10)
+            ax.legend(fontsize=7)
+    ax = fig.add_subplot(gs[2, :])
+    h, beta, n = F7_SERIES
+    T_orb = scenarios.build_truth(h).T_orb
+    s0 = series["hold"]
+    t1 = s0["t1"]
+    w = (t1 >= 7 * DAY - T_orb) & (t1 < 7 * DAY + T_orb)
+    th = (t1[w] - 7 * DAY) / 60.0
+    for mode in ("hold", "fit"):
+        s_ = series[mode]
+        e = (s_["bhat1"] - s_["b1"]) / s_["rho_ref"]
+        e = np.where(s_["skip1"], np.nan, e)
+        ax.plot(th, 100 * e[w], lw=0.6, color=cols[mode], label=f"{mode}: (b̂ − b)/ρ_ref")
+    nu = s0["nu1"][w]
+    cross = np.nonzero(np.diff(nu) != 0)[0]
+    for i, k in enumerate(cross):
+        ax.axvline(th[k + 1], color="0.4", lw=0.8, ls=":", label="terminator crossing" if i == 0 else None)
+    ax.fill_between(th, 0, 1, where=nu > 0.5, transform=ax.get_xaxis_transform(), color="gold", alpha=0.15, lw=0,
+                    label="sunlit (ν = 1)")
+    ax.axhline(0.0, color="k", lw=0.5)
+    ax.set_xlabel("time from day 7 (min)")
+    ax.set_ylabel("(b̂ − b)/ρ_ref (%)")
+    ax.set_title(f"F7 (c) · {h:.0f} km, ({beta[0]:g}, {beta[1]:g}), N = {n}: zero-read estimate error, causal modes, "
+                 "two orbits around day 7 (shutter seconds blank)", fontsize=10)
+    for ln in ax.legend(fontsize=8, loc="upper right", ncol=2).get_lines():
+        ln.set_linewidth(2.0)
+    fig.tight_layout()
+    fig.savefig(RESULTS / "F7.png", dpi=130)
+    plt.close(fig)
+
+    # panel (c) numbers for the reading
+    pc = {}
+    for mode in ("hold", "fit"):
+        s_ = series[mode]
+        e = ((s_["bhat1"] - s_["b1"]) / s_["rho_ref"])[w & ~s_["skip1"]]
+        pc[mode] = {"rms": float(np.sqrt(np.mean(e * e))), "max_abs": float(np.max(np.abs(e)))}
+    out = {
+        "config": {"t_zero_s": gauge.T_ZERO, "n_zero": list(F7_N), "modes": list(F7_MODES), "betas": [list(b) for b in F7_BETAS],
+                   "alts_km": list(F7_ALTS), "tau_b_s": gauge.TAU_B, "tau_model_main_s": gauge.TAU_B,
+                   "probe": {**F7_PROBE, "beta": list(F7_PROBE["beta"])}, "min_valid": gauge.MIN_VALID,
+                   "fit_min_spread": gauge.FIT_MIN_SPREAD, "gauge_seed": scenarios.GAUGE_SEED,
+                   "zr_seed": scenarios.ZR_SEED, "noise_floor": gauge.NOISE_FLOOR, "noise_rel": gauge.NOISE_REL,
+                   "ref_commit": F7_REF_COMMIT},
+        "baseline_from_F6": baseline,
+        "cells": [_scalars(c) for c in cells],
+        "probe": [_scalars(c) for c in probe],
+        "panel_c": {"h_km": h, "beta": list(beta), "n_zero": n, "window_s": [7 * DAY - T_orb, 7 * DAY + T_orb],
+                    "n_terminator_crossings": int(len(cross)), **pc},
+        "regression": {"n1_interp_vs_F6_B": reg},
+    }
+    (RESULTS / "F7.json").write_text(json.dumps(out, indent=1, default=float))
+    # R3b-6 part 2 needs the files on disk: compare after writing F7 (F7 is not tracked at the reference commit)
+    out["regression"]["results_identical_to_ref"] = _results_identical_to(F7_REF_COMMIT)
+    (RESULTS / "F7.json").write_text(json.dumps(out, indent=1, default=float))
+    return cells
+
+
 def decay_signal():
     rows = [metrics.decay_signal(scenarios.build_truth(h)) for h in ALTS]
     RESULTS.mkdir(exist_ok=True)
@@ -676,7 +842,8 @@ def _f6_section(f1):
     return L
 
 
-FIGS = {"signal": decay_signal, "F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5, "F6": fig_f6}
+FIGS = {"signal": decay_signal, "F1": fig_f1, "F2": fig_f2, "F3": fig_f3, "F4": fig_f4, "F5": fig_f5, "F6": fig_f6,
+        "F7": fig_f7}
 
 
 def main(argv=None):

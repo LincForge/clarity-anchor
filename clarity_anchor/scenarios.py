@@ -98,7 +98,8 @@ def _truth_kernel(truth):
 
 def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draws=MC_DRAWS,
              composition=True, gauge_seed=GAUGE_SEED, keep_series=False, k_path=None, noise_seed=None,
-             pod_seed=None, estimator="inv", beta=None, variant="A", zero_noise=True):
+             pod_seed=None, estimator="inv", beta=None, variant="A", zero_noise=True, n_zero=1, zr_mode="interp",
+             tau_model=None):
     """One scenario cell: truth -> gauge -> POD -> anchor -> KF -> metrics.
 
     estimator="inv" (default, round 2): KF state y = 1/K_eff, measurement z_inv = I_pod/I_gauge,
@@ -108,12 +109,20 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     b(t) = rho_ref (beta0 + beta1 s(t)) to the gauge; variant "A" runs the round-2 estimator unchanged,
     variant "B" subtracts a shutter zero-read b_hat before the anchor and the 30 s product.
     beta=None is the round-2 cell (no new output keys).
+
+    Round 3b (docs/round3b-zero-read-spec.md), variant B only: n_zero closed seconds averaged per zero-read and the
+    b_hat estimator zr_mode in gauge.ZR_MODES ("interp" = round 3, "hold", "fit"); "fit" uses the lagged sunlit
+    indicator with the ASSUMED lag tau_model (None = gauge.TAU_B, matched to truth). 30 s bins with fewer than
+    gauge.MIN_VALID valid samples are gaps (NaN) and are excluded from every metric. n_zero=1, zr_mode="interp"
+    reproduces round 3 bit for bit.
     """
     from scipy.integrate import simpson
 
     from . import anchor, gauge, metrics, pod
     from . import filter as kf
 
+    if zr_mode not in gauge_modes():
+        raise ValueError(f"zr_mode must be one of {gauge_modes()}, got {zr_mode!r}")
     truth = build_truth(h_km, days=days, use_cache=use_cache)
     t1, rho1 = truth.t1, truth.rho1
     rng_g = np.random.default_rng(gauge_seed)
@@ -132,10 +141,13 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
             raise ValueError(f"variant must be one of {VARIANTS}, got {variant!r}")
         off = _offset_truth(truth, beta)
     meas1 = gauge.measure(rho1, K1, g1, rng_g, b=None if off is None else off["b1"])
-    dens1, skip = meas1, None  # what the estimator integrates and bins
+    dens1, skip, bhat1 = meas1, None, None  # what the estimator integrates and bins
+    tau_m = gauge.TAU_B if tau_model is None else float(tau_model)
     if off is not None and variant == "B":
-        dens1, skip = gauge.subtract_zero_reads(t1, meas1, off["b1"], np.random.default_rng(ZR_SEED),
-                                                noise=zero_noise)
+        s_model = gauge.sunlit_lag(t1, off["nu1"], tau_m) if zr_mode == "fit" else None
+        dens1, skip, bhat1 = gauge.subtract_zero_reads(t1, meas1, off["b1"], np.random.default_rng(ZR_SEED),
+                                                       noise=zero_noise, n_zero=n_zero, mode=zr_mode,
+                                                       s_model=s_model, return_bhat=True)
     tp, rp, vp = pod.observe(truth.t, truth.states, grade,
                              np.random.default_rng(POD_SEED[grade] if pod_seed is None else pod_seed))
     B_model = truth.B_true * (1 + eps_B)
@@ -166,7 +178,8 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     gbar = simpson((g1 * rho1 * w1)[idx], dx=1.0, axis=1) / den
 
     # 30 s products
-    tb, meas_b = gauge.bin_mean(t1, dens1, 30.0, skip=skip)
+    tb, meas_b = gauge.bin_mean(t1, dens1, 30.0, skip=skip, min_valid=None if skip is None else gauge.MIN_VALID)
+    valid = np.isfinite(meas_b)  # round 3b: gap bins (fewer than MIN_VALID valid samples) are excluded everywhere
     _, rho_b = gauge.bin_mean(t1, rho1, 30.0)
     xhat_b = res_kf.at(tb)
     rho_cal = meas_b * xhat_b if inv else meas_b / xhat_b
@@ -180,9 +193,10 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
     t_conv = metrics.convergence_time(tb[in_arcs], e_k[in_arcs], metrics.CONV_TOL)
     converged = not np.isnan(t_conv)
     t_from = t_conv if converged else (days - 7.0) * 86400.0
-    acc, prec, nwin = metrics.acc_prec(tb, e_rho, t_from)
-    mean_err = float(np.mean(e_rho[tb >= t_from]))
-    acc_uncal = float(abs(np.mean((meas_b / rho_b - 1.0)[tb >= t_from])))  # ground calibration only (K_hat = 1)
+    acc, prec, nwin = metrics.acc_prec(tb[valid], e_rho[valid], t_from)
+    win = (tb >= t_from) & valid
+    mean_err = float(np.mean(e_rho[win]))
+    acc_uncal = float(abs(np.mean((meas_b / rho_b - 1.0)[win])))  # ground calibration only (K_hat = 1)
     out = {
         "h_km": h_km, "grade": grade, "eps_B": eps_B, "n_orb": n_orb, "days": days,
         "K0": K0, "R_std": r_std, "R_mc_mean": r_mean, "n_arcs": int(len(a["z"])),
@@ -200,7 +214,13 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
         "ksig_final_rel": float(np.sqrt(res_kf.P[-1]) / res_kf.x[-1]),
     }
     if off is not None:
-        out.update(_offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip))
+        out.update(_offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip, valid))
+        if variant == "B":
+            d1 = (t1 >= 86400.0) & ~skip
+            r = ((bhat1 - off["b1"]) / off["rho_ref"])[d1]
+            out.update({"n_zero": int(n_zero), "zr_mode": zr_mode, "tau_model": tau_m,
+                        "gap_frac": float(np.mean(~valid)),
+                        "bhat_rms_rel_d1_14": float(np.sqrt(np.mean(r * r))) if len(r) else float("nan")})
     if res2 is not None:
         c_true = simpson((off["b1"] * w1)[idx], dx=1.0, axis=1) / simpson(w1[idx], dx=1.0, axis=1)
         half = len(res2.t) // 2
@@ -218,7 +238,15 @@ def run_cell(h_km, grade, eps_B=0.0, n_orb=1, days=14.0, use_cache=True, mc_draw
         if off is not None:
             out["series"].update({"t1": t1, "rho1": rho1, "meas1": meas1, "b1": off["b1"], "nu1": off["nu1"],
                                   "s1": off["s1"]})
+            if bhat1 is not None:
+                out["series"].update({"bhat1": bhat1, "skip1": skip, "rho_ref": off["rho_ref"]})
     return out
+
+
+def gauge_modes():
+    from . import gauge
+
+    return gauge.ZR_MODES
 
 
 def _offset_truth(truth, beta):
@@ -235,13 +263,15 @@ def _offset_truth(truth, beta):
     return {"nu1": nu1, "s1": s1, "rho_ref": rho_ref, "b1": b1}
 
 
-def _offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip):
-    """Round 3 per-cell metrics (spec §4) over the post-convergence window."""
+def _offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, dens1, skip, valid=None):
+    """Round 3 per-cell metrics (spec §4) over the post-convergence window (round 3b: gap bins excluded)."""
     from . import gauge
 
     _, s_b = gauge.bin_mean(t1, off["s1"], 30.0)
     _, b_b = gauge.bin_mean(t1, off["b1"], 30.0)
     post = tb >= t_from
+    if valid is not None:
+        post = post & valid
     e, sb, frac = e_rho[post], s_b[post], (b_b / rho_b)[post]
     rp = rho_b[post]
 
@@ -265,7 +295,7 @@ def _offset_metrics(t1, tb, e_rho, rho_b, t_from, off, beta, variant, meas1, den
     }
     if variant == "B":
         bhat1 = meas1 - dens1  # b_hat at every non-skipped second
-        _, bhat_b = gauge.bin_mean(t1, bhat1, 30.0, skip=skip)
+        _, bhat_b = gauge.bin_mean(t1, bhat1, 30.0, skip=skip, min_valid=gauge.MIN_VALID)
         d = ((bhat_b - b_b) / rho_b)[post]
         out.update({"bhat_err_rel_mean": float(np.mean(d)), "bhat_err_rel_std": float(np.std(d)),
                     "skipped_frac": float(np.mean(skip))})
