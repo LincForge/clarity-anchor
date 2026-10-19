@@ -204,8 +204,9 @@ def test_run_cell_rejects_unknown_zr_mode():
 def test_run_cell_n1_interp_reproduces_F6_variant_B():
     """R3b-6: N = 1, interp reproduces the stored F6 400 km (0.3, 0.3) variant-B cell.
 
-    Exact on the machine that produced F6.json (macOS arm64); within 1e-6 relative across platforms, since
-    Linux x86_64 differs in the last bits of the MSIS evaluation (CI 2026-10-18). n_bins is exact.
+    Exact on the machine that produced F6.json (macOS arm64, 47/47 fields, recorded in summary.md R3b-6);
+    within 1e-5 relative across platforms, since Linux x86_64 differs in the last bits of the MSIS evaluation
+    (CI 2026-10-18). n_bins is exact.
     """
     f6 = json.loads((RESULTS / "F6.json").read_text())
     ref = next(c for c in f6["cells"] if c["h_km"] == 400.0 and c["beta0"] == 0.3 and c["beta1"] == 0.3
@@ -216,6 +217,6 @@ def test_run_cell_n1_interp_reproduces_F6_variant_B():
         if k == "n_bins":
             assert c[k] == ref[k], k
         else:
-            # all floats here are fractions of density or days; abs 1e-8 keeps it a regression guard while
-            # letting near-cancelling means (accuracy ~5e-4) absorb the ~6e-10 platform difference
-            assert c[k] == pytest.approx(ref[k], rel=1e-6, abs=1e-8), k
+            # Linux x86_64 vs macOS arm64 differ by ~1e-6 relative through the whole chain (pymsis last bits).
+            # Quoted results carry 0.01 pp = 1e-4; 1e-5 rel / 1e-7 abs is 1000x tighter than any quoted digit.
+            assert c[k] == pytest.approx(ref[k], rel=1e-5, abs=1e-7), k
